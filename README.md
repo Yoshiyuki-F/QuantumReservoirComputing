@@ -1,4 +1,4 @@
-#  Quantum Reservoir Computing with JAX (LR_QRC)
+#  Quantum Reservoir Computing with JAX (LR-QRC)
 
 A JAX-based Reservoir Computing implementation designed for high-performance numerical computation and flexibility. This project supports various reservoir architectures, including classical Reservoirs and Quantum Reservoirs (Gate-based), and is capable of handling both Regression and Classification tasks.
 
@@ -7,7 +7,7 @@ A JAX-based Reservoir Computing implementation designed for high-performance num
 - **JAX-based**: Optimized for high-speed numerical computation and GPU acceleration.
 - **Unified Pipeline**: Consistent interface for running experiments across different models and datasets.
 - **Multiple Architectures**:
-    - Classical Reservoir
+    - Classical Reservoir(LI-ESN)
     - Feedforward Neural Network (FNN)
     - Distillation Models (FNN from Reservoir)
     - PassThrough Models (no train. just read out)
