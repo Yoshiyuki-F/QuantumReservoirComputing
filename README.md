@@ -51,7 +51,8 @@ uv run python -m reservoir.cli.main --model <MODEL> --dataset <DATASET> [OPTIONS
 - `--model`: **(Required)** The model architecture to use.
     - `classical_reservoir`
     - `fnn`
-    - `fnn_distillation`
+    - `fnn_distillation_quantum`
+    - `fnn_distillation_classical`
     - `quantum_reservoir`
     - `passthrough`
 - `--dataset`: **(Required)** The dataset to use.
@@ -75,21 +76,6 @@ uv run python -m reservoir.cli.main --model quantum_reservoir --dataset lorenz
 **3. MLP Training (FNN) on MNIST**
 ```bash
 uv run python -m reservoir.cli.main --model fnn --dataset mnist
-```
-
-### GPU & Testing with Poe
-
-GPU execution is recommended for performance.
-
-```bash
-# Run tests (CPU)
-uv run poe test
-
-# Run GPU smoke tests
-uv run poe test-gpu
-
-# Run CLI with GPU environment variables set
-uv run poe cli-gpu -- --model classical_reservoir --dataset sine_wave
 ```
 
 ## File Structure
