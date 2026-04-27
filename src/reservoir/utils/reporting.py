@@ -297,8 +297,8 @@ def infer_filename_parts(topo_meta: TopologyMeta, training_obj: TrainingConfig, 
     if config is not None:
         # Some configs might be nested or we just need the underlying model config
         curr_cfg = config
-        while hasattr(curr_cfg, 'model') and getattr(curr_cfg, 'model') is not None:
-            curr_cfg = getattr(curr_cfg, 'model')
+        while hasattr(curr_cfg, 'model') and curr_cfg.model is not None:
+            curr_cfg = curr_cfg.model
             
         if hasattr(curr_cfg, 'label'):
             model_str = curr_cfg.label

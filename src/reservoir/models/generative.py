@@ -3,7 +3,7 @@ src/reservoir/models/generative.py
 Base implementation for generative models providing closed-loop generation.
 """
 from abc import ABC, abstractmethod
-from typing import TypeVar, Protocol, runtime_checkable, cast
+from typing import TypeVar, Protocol, runtime_checkable
 from collections.abc import Callable
 
 from beartype import beartype
@@ -113,7 +113,7 @@ class ClosedLoopGenerativeModel[StateT](ABC):
             history_in = projection_fn(history) if projection_fn else history
 
             if verbose:
-                print(f"[generative.py] Step8  Running forward pass on seed data...")
+                print("[generative.py] Step8  Running forward pass on seed data...")
             final_state, history_outputs = self.forward(initial_state_warmup, history_in)
             last_output = history_outputs[:, -1, :]
 

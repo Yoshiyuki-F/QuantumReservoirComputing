@@ -13,7 +13,7 @@ import typing
 from reservoir.layers.aggregation import AggregationMode
 from reservoir.models.reservoir.base import Reservoir
 
-from reservoir.core.types import JaxF64, TrainLogs, ConfigDict, KwargsDict
+from reservoir.core.types import JaxF64, TrainLogs, ConfigDict
 
 
 

@@ -23,8 +23,7 @@ from reservoir.models.config import (
     FNNConfig,
     PipelineConfig,
     RidgeReadoutConfig, FNNReadoutConfig, PassthroughConfig, PolyRidgeReadoutConfig,
-    QuantumReservoirConfig, ResizeProjectionConfig, PolynomialProjectionConfig, AffineScalerConfig,
-    BoundedAffineScalerConfig
+    QuantumReservoirConfig, ResizeProjectionConfig, PolynomialProjectionConfig, BoundedAffineScalerConfig
 )
 from reservoir.data.presets import get_dataset_preset 
 from typing import TYPE_CHECKING

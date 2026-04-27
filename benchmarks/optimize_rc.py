@@ -261,7 +261,7 @@ def derive_names(readout_key: str, dataset_name: str):
 
     # Custom MinMax tag
     if isinstance(base.preprocess, MinMaxScalerConfig):
-        prep_tag = f"MinMax"
+        prep_tag = "MinMax"
 
     # Projection
     proj = base.projection

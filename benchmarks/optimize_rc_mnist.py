@@ -35,7 +35,6 @@ from reservoir.models.presets import (  # noqa: E402
     DEFAULT_RIDGE_READOUT,
 )
 from reservoir.models.config import (  # noqa: E402
-    MinMaxScalerConfig,
     PolyRidgeReadoutConfig,
     RandomProjectionConfig, BoundedAffineScalerConfig,
 )

@@ -22,7 +22,7 @@ def main():
     
     for seed in seeds:
         for lam in lambda_candidates:
-            print(f"\n" + "="*50)
+            print("\n" + "="*50)
             print(f"Running seed={seed}, lambda={lam:.2e}")
             print("="*50 + "\n")
             

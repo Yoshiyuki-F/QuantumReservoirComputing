@@ -346,7 +346,7 @@ def main():
         csv_path = Path(args.enqueue_csv)
         if csv_path.exists():
             print(f"\\n[+] Enqueueing trials from {csv_path}...")
-            with open(csv_path, 'r', encoding='utf-8') as f:
+            with open(csv_path, encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 count = 0
                 for row in reader:

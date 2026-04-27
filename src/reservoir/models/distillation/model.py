@@ -6,15 +6,12 @@ import jax.numpy as jnp
 
 from reservoir.models.generative import ClosedLoopGenerativeModel
 from reservoir.models.reservoir.base import Reservoir
-from typing import TYPE_CHECKING
 
 from reservoir.core.types import JaxF64, TrainLogs, EvalMetrics, KwargsDict, TopologyMeta, to_np_f64, to_jax_f64
 from reservoir.models.nn.fnn import FNNModel
 from reservoir.training.presets import TrainingConfig
 from reservoir.utils.batched_compute import batched_compute
 
-if TYPE_CHECKING:
-    pass #ruff safe breaks this
 
 @beartype
 class DistillationModel(ClosedLoopGenerativeModel):

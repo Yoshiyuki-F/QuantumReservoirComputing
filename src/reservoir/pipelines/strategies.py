@@ -5,7 +5,8 @@ from abc import ABC, abstractmethod
 from reservoir.core.types import NpF64, to_np_f64, to_jax_f64, FitResultDict, JaxF64
 import jax
 import jax.numpy as jnp
-from typing import Any, cast, Callable, TYPE_CHECKING
+from typing import Any, cast, TYPE_CHECKING
+from collections.abc import Callable
 import numpy as np
 
 
@@ -320,7 +321,6 @@ class ReadoutStrategy(ABC):
         val_final_state: tuple | None = None, # New Argument
     ) -> FitResultDict:
         """Fit readout and return predictions/metrics."""
-        pass
 
     def _optimize_and_plot_ridge(
         self,

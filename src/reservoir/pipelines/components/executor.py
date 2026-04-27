@@ -1,5 +1,4 @@
 # /home/yoshi/PycharmProjects/Reservoir/src/reservoir/pipelines/components/executor.py
-from functools import partial
 
 import jax.numpy as jnp
 from reservoir.core.types import NpF64, to_jax_f64, to_np_f64

@@ -8,7 +8,7 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-from reservoir.core.types import JaxF64, TrainLogs, ConfigDict, KwargsDict
+from reservoir.core.types import JaxF64, TrainLogs, ConfigDict
 from jaxtyping import jaxtyped
 from typing import Literal, TypedDict, Any
 from beartype import beartype

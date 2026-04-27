@@ -21,7 +21,7 @@ def benchmark_quantum_circuit():
     input_dim = input_val.shape[0]
     step_input_unitaries = jnp.stack([_get_paper_R_unitary(input_val[i % input_dim]) for i in range(n_qubits)])
 
-    print(f"--- Benchmarking Quantum Logic (Batched Indexed + complex128) ---")
+    print("--- Benchmarking Quantum Logic (Batched Indexed + complex128) ---")
     
     @jax.jit
     def bench_loop(iu, fv, p):

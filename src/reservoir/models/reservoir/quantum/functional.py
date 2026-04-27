@@ -6,7 +6,7 @@ Optimized for complex128 precision.
 
 from __future__ import annotations
 
-from typing import cast, TYPE_CHECKING, Optional
+from typing import cast, TYPE_CHECKING
 from functools import partial, lru_cache
 
 import jax
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 @lru_cache(maxsize=8)
-def _get_qubit_offsets(n_qubits: int) -> "JaxF64":
+def _get_qubit_offsets(n_qubits: int) -> JaxF64:
     """Pre-computed per-qubit angular offsets for input diversification.
     Cached to avoid redundant jnp.linspace calls inside JIT.
     """
@@ -63,7 +63,7 @@ def _get_fused_rotation_matrix(params: JaxF64) -> JaxF64:
 
 # --- Performance Optimization Helpers ---
 
-def _get_paper_R_unitary(theta: "JaxF64") -> "JaxF64":
+def _get_paper_R_unitary(theta: JaxF64) -> JaxF64:
     """Compute fused 4x4 unitary for the Paper R gate (vmap safe).
     Analytically pre-computed to avoid kron and matmul overhead.
     """
@@ -86,7 +86,7 @@ def _get_paper_R_unitary(theta: "JaxF64") -> "JaxF64":
         axis=-2,
     )
 
-def _get_input_unitaries(u_vec: "JaxF64", n_qubits: int) -> "JaxF64":
+def _get_input_unitaries(u_vec: JaxF64, n_qubits: int) -> JaxF64:
     """Computes input unitaries with per-qubit diversification offsets."""
     indices = jnp.arange(n_qubits) % u_vec.shape[0]
     base_angles = u_vec[indices]
@@ -151,11 +151,11 @@ def _make_circuit_logic(
             if not is_noisy:
                 return
             
-            r_array: Optional[jax.Array] = None
+            r_array: jax.Array | None = None
             if is_mc:
                 assert current_key is not None, "current_key must be initialized for MC noise"
                 # Vectorized PRNG split: generate all random numbers for this batch of indices at once
-                k1, current_key = jax.random.split(cast(jax.Array, current_key))
+                k1, current_key = jax.random.split(cast("jax.Array", current_key))
                 r_array = jax.random.uniform(k1, shape=(len(noise_indices),))
                 
             for enum_i, target_idx in enumerate(noise_indices):

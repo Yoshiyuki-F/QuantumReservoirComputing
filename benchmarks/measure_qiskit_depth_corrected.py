@@ -4,13 +4,9 @@ This script extracts the core circuit logic from functional.py,
 converts it to Qiskit, and transpiles it for a linear (NISQ-like) topology.
 """
 
-import jax
-import jax.numpy as jnp
-import tensorcircuit as tc
 import qiskit
 from qiskit.transpiler import CouplingMap
 from qiskit import QuantumCircuit
-from qiskit.circuit.library import RXGate, RYGate, RZGate, CXGate
 
 def build_lrqrc_circuit_qiskit(n_qubits: int) -> QuantumCircuit:
     """
