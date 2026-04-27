@@ -1373,46 +1373,83 @@ source = { editable = "." }
 dependencies = [
     { name = "beartype" },
     { name = "flax" },
-    { name = "ipykernel" },
     { name = "jax", extra = ["cuda13"] },
-    { name = "jaxlib" },
     { name = "jaxtyping" },
-    { name = "matplotlib" },
     { name = "numpy" },
     { name = "optax" },
+    { name = "tensorcircuit-ng", extra = ["jax"] },
+    { name = "tqdm" },
+]
+
+[package.optional-dependencies]
+analysis = [
+    { name = "pandas" },
+]
+hpo = [
+    { name = "optuna" },
+]
+mnist = [
+    { name = "torch", version = "2.11.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.11.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+    { name = "torchvision", version = "0.26.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torchvision", version = "0.26.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+]
+notebook = [
+    { name = "ipykernel" },
+]
+quantum-extra = [
+    { name = "qiskit" },
+]
+viz = [
+    { name = "matplotlib" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
     { name = "optuna" },
     { name = "optuna-dashboard" },
     { name = "pandas" },
     { name = "pandas-stubs" },
     { name = "qiskit" },
-    { name = "tensorcircuit-ng", extra = ["jax"] },
     { name = "torch", version = "2.11.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.11.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
     { name = "torchvision", version = "0.26.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.26.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
-    { name = "tqdm" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "beartype" },
     { name = "flax" },
-    { name = "ipykernel" },
+    { name = "ipykernel", marker = "extra == 'notebook'" },
     { name = "jax", extras = ["cuda13"] },
-    { name = "jaxlib" },
     { name = "jaxtyping" },
-    { name = "matplotlib" },
+    { name = "matplotlib", marker = "extra == 'viz'" },
     { name = "numpy" },
     { name = "optax" },
+    { name = "optuna", marker = "extra == 'hpo'" },
+    { name = "pandas", marker = "extra == 'analysis'" },
+    { name = "qiskit", marker = "extra == 'quantum-extra'" },
+    { name = "tensorcircuit-ng", extras = ["jax"], git = "https://github.com/tensorcircuit/tensorcircuit-ng.git" },
+    { name = "torch", marker = "extra == 'mnist'", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torchvision", marker = "extra == 'mnist'", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "tqdm" },
+]
+provides-extras = ["viz", "mnist", "quantum-extra", "hpo", "notebook", "analysis"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
     { name = "optuna" },
     { name = "optuna-dashboard" },
     { name = "pandas" },
     { name = "pandas-stubs" },
     { name = "qiskit" },
-    { name = "tensorcircuit-ng", extras = ["jax"], git = "https://github.com/tensorcircuit/tensorcircuit-ng.git" },
     { name = "torch", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torchvision", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "tqdm" },
 ]
 
 [[package]]

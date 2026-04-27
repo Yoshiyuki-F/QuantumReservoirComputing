@@ -9,31 +9,46 @@ readme = "README.md"
 requires-python = ">=3.14.4"
 dependencies = [
     "numpy",
-    #visualization
-    "matplotlib",
     "tqdm",
-    #ML
     "jax[cuda13]",
-    "jaxlib",
     "optax",
     "flax",
-    #Type scrict
     "beartype",
     "jaxtyping",
-    #Quantum
     "tensorcircuit-ng[jax]",
-    "qiskit", # just to test for transpiled circuit depth in superconductive hardware
-    #mnist dataset
-    "torch", #CPU version
-    "torchvision", #CPU version
-    #test
+]
+
+[project.optional-dependencies]
+viz = [
+    "matplotlib",
+]
+mnist = [
+    "torch",
+    "torchvision",
+]
+quantum-extra = [
+    "qiskit",
+]
+hpo = [
+    "optuna",
+]
+notebook = [
+    "ipykernel",
+]
+analysis = [
+    "pandas",
+]
+
+[dependency-groups]
+dev = [
+    "matplotlib",
+    "torch",
+    "torchvision",
     "pandas",
     "pandas-stubs",
-
-    # hyper parameter optimization
+    "qiskit",
     "optuna",
     "optuna-dashboard",
-    #jupiter notebook
     "ipykernel",
 ]
 
@@ -65,89 +80,38 @@ torchvision = { index = "pytorch-cpu" }
 [tool.pyrefly]
 project-includes = ["src"]
 
-# ==========================================
-# 1. 基本の厳格化（ユーザー設定済）
-# ==========================================
-strict = true
-untyped-def-behavior = "check-and-infer-return-type"
+# Type check unannotated function bodies and infer return types using Pyrefly's current config keys.
+check-unannotated-defs = true
+infer-return-types = "checked"
 
-# ==========================================
-# 2. Any / object / 型引数不足 の明示的な使用を許さない（ユーザー設定済）
-# ==========================================
-report-any = "error"
-report-explicit-any = "error"
-report-implicit-override = "error"
-report-missing-type-args = "error"
-
-# ==========================================
-# 3. 【追加】外部ライブラリ由来の「暗黙のAny (Unknown)」を完全封鎖
-# ==========================================
-# サードパーティの関数が型推論できず Any を返してきた場合、
-# それを変数に入れたり引数に渡したりする行為そのものをエラーにします。
-report-unknown-variable-type = "error"
-report-unknown-parameter-type = "error"
-report-unknown-argument-type = "error"
-report-unknown-member-type = "error"
-
-# ==========================================
-# 4. 【追加】開発者の「コメントによる逃げ」を封鎖
-# ==========================================
-# 「とりあえず # type: ignore でエラー消しとこ」というサボりを監視します。
-# 本当にエラーが出ていない行に ignore を書くと逆に怒られます。
-report-unnecessary-type-ignore = "error"
-report-unnecessary-cast = "error"
-
-# ==========================================
-# 5. 【修正】インポートとスタブの厳格化
-# ==========================================
-report-missing-type-stubs = "error"  # ※ true ではなく "error" にレベルを合わせる
-report-missing-imports = "error"
-
-# ==========================================
-# 【追加】Pyrefly 究極の論理チェック
-# ==========================================
-# 1. 戻り値の無視を禁止 (Functional Strictness)
-# 関数が値を返しているのに、変数に代入せずに捨てた場合にエラーにします。
-# 例: `scaler.transform(X)` と書いて代入し忘れるバグ（MLあるある）を物理的に防ぎます。
-reportUnusedCallResult = "error"
-
-# 2. 無意味な比較の禁止 (Logic Check)
-# 既に Pyrefly が「これは絶対に None ではない」と推論できているのに、
-# 念のため `if x is not None:` と書くと「そのチェックは無意味だ！」と怒られます。
-# 先ほどの「過剰な防衛コード」を型チェッカーレベルで焼き払います。
-reportUnnecessaryComparison = "error"
-
-# 3. 未到達コードの禁止
-# 絶対に実行されない if 文の分岐（デッドコード）を許しません。
-reportUnreachable = "error"
+[tool.pyrefly.errors]
+# Pyrefly error kinds verified against `pyrefly check --help` and official configuration docs.
+missing-import = true
+untyped-import = true
+implicit-any = true
+unannotated-parameter = true
+redundant-cast = true
 
 
 # Ruff全体の設定
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 
 # Linter個別の設定
 [tool.ruff.lint]
 extend-select = [
     "UP", "TCH", "S101",
 
-    # 1. B (flake8-bugbear): 潜在的なバグの温床を破壊
-    # def func(data=[]): のようなミュータブルなデフォルト引数や、
-    # ループ変数のスコープ漏れなど、Python特有の罠をすべて弾きます。
+    # Detect common Python bug patterns such as mutable defaults and loop-variable issues.
     "B",
 
-    # 2. BLE / TRY (Blind Except / Tryceratops): 例外の握りつぶし禁止
-    # `except Exception:` や `except:` を完全に禁止します。
-    # OOMやキーエラーをサイレントに握りつぶすことを防ぎ、必ず `except ValueError:` のように明示させます。
+    # Require explicit exception handling and discourage broad exception catches.
     "BLE", "TRY",
 
-    # 3. ARG (flake8-unused-arguments): 未使用引数の禁止
-    # 関数で引数を定義したのに、中で使っていない場合に怒られます。
-    # （インターフェースとして必要な場合は `_` をプレフィックスにすれば回避可能）
+    # Detect unused arguments. Interface-level exceptions are documented in the suppression registry.
     "ARG",
 
-    # 5. PIE (flake8-pie): 無駄なコードの排除
-    # passだけの不必要なブロックなどを禁止します。
+    # Detect unnecessary code patterns.
     "PIE"
 ]
 extend-ignore = [
