@@ -6,7 +6,7 @@ authors = [
     { name = "yoshi", email = "yossyf1147@gmail.com" }
 ]
 readme = "README.md"
-requires-python = ">=3.13.12"
+requires-python = ">=3.14.4"
 dependencies = [
     "numpy",
     #visualization
@@ -18,10 +18,8 @@ dependencies = [
     "optax",
     "flax",
     #Type scrict
-    "pyrefly",
     "beartype",
     "jaxtyping",
-    "ruff",
     #Quantum
     "tensorcircuit-ng[jax]",
     "qiskit", # just to test for transpiled circuit depth in superconductive hardware
@@ -31,10 +29,7 @@ dependencies = [
     #test
     "pandas",
     "pandas-stubs",
-    "pytest",
-    # CUDA GPU is not recognized with the latest cusparse(12.5.9.5, 12.5.10.65)
-    # RuntimeError: jaxlib/cuda/versions_helpers.cc:81: operation cusparseGetProperty(MAJOR_VERSION, &major) failed: The cuSPARSE library was not found. so 12.5.8.93
-#    "nvidia-cusparse-cu12==12.5.8.93",
+
     # hyper parameter optimization
     "optuna",
     "optuna-dashboard",
