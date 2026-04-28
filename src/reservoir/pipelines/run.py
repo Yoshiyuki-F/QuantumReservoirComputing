@@ -7,10 +7,6 @@ Architecture V2 Compliance:
 - Component-Based: Delegates to DataManager, ModelBuilder, Executor, and Reporter.
 """
 
-from reservoir.data.identifiers import Dataset
-from reservoir.core.types import ConfigDict
-from reservoir.models.presets import PipelineConfig
-from reservoir.training.presets import TrainingConfig
 
 # Refactored Components
 from reservoir.pipelines.components.data_manager import PipelineDataManager
@@ -18,6 +14,13 @@ from reservoir.pipelines.components.model_builder import PipelineModelBuilder
 from reservoir.pipelines.components.executor import PipelineExecutor
 from reservoir.pipelines.components.reporter import ResultReporter
 from reservoir.pipelines.components.data_coordinator import DataCoordinator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from reservoir.training.presets import TrainingConfig
+    from reservoir.models.presets import PipelineConfig
+    from reservoir.core.types import ConfigDict
+    from reservoir.data.identifiers import Dataset
 
 
 def run_pipeline(

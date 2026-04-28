@@ -68,7 +68,7 @@ def main():
             with redirect_stdout(f_out):
                 try:
                     res = run_pipeline(preset, dataset, training_config)
-                except Exception as e:
+                except (ValueError, RuntimeError, FloatingPointError) as e:
                     error_occurred = str(e)
             
             # Print the output that we captured

@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from reservoir.core.types import NpF64, to_np_f64, to_jax_f64, FitResultDict, JaxF64
+from reservoir.core.types import NpF64, to_np_f64, to_jax_f64, FitResultDict, JaxF64, ModelState
 import jax
 import jax.numpy as jnp
-from typing import Any, cast, TYPE_CHECKING
-from collections.abc import Callable
+from typing import cast, TYPE_CHECKING
 import numpy as np
 
 
@@ -15,12 +14,13 @@ from reservoir.utils.reporting import print_chaos_metrics, print_ridge_search_re
 from reservoir.utils.metrics import compute_score, calculate_chaos_metrics
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from reservoir.models.generative import Predictable
     from reservoir.models.presets import PipelineConfig
     from reservoir.pipelines.config import FrontendContext, DatasetMetadata
     from reservoir.readout.base import ReadoutModule
     from reservoir.pipelines.evaluation import Evaluator
-    from reservoir.models.generative import ClosedLoopGenerativeModel
+    from reservoir.models.generative import ClosedLoopGenerativeModel, ClosedLoopModel
     from reservoir.core.types import TopologyMeta
 
 
@@ -133,7 +133,7 @@ def optimize_ridge_vmap(
     inverse_fn: Callable[[NpF64], NpF64] | None = None,
     norm_threshold: float | None = None,
     feature_mapper: Callable[[JaxF64], JaxF64] | None = None,
-) -> tuple[float, float, dict[float, float], dict[float, float], NpF64, JaxF64, dict[float, np.ndarray] | None]:
+) -> tuple[float, float, dict[float, float], dict[float, float], NpF64, JaxF64, dict[float, NpF64] | None]:
     """
     Common vectorized RidgeCV optimization logic using batched_compute.
     
@@ -217,7 +217,7 @@ def optimize_ridge_vmap(
     # 4. Score on CPU
     search_history: dict[float, float] = {}
     weight_norms: dict[float, float] = {}
-    residuals_history: dict[float, np.ndarray] = {}
+    residuals_history: dict[float, NpF64] = {}
     
     # Determine optimization direction
     minimize = metric_name.lower() in ["nmse", "mse", "rmse", "nrmse", "mase"]
@@ -306,7 +306,7 @@ class ReadoutStrategy(ABC):
     @abstractmethod
     def fit_and_evaluate(
         self,
-        model: ClosedLoopGenerativeModel,
+        model: ClosedLoopModel,
         readout: ReadoutModule | None,
         train_Z: NpF64,
         val_Z: NpF64 | None,
@@ -318,7 +318,7 @@ class ReadoutStrategy(ABC):
         dataset_meta: DatasetMetadata,
         pipeline_config: PipelineConfig,
         topo_meta: TopologyMeta,
-        val_final_state: tuple | None = None, # New Argument
+        val_final_state: tuple[ModelState | None, JaxF64 | None] | None = None, # New Argument
     ) -> FitResultDict:
         """Fit readout and return predictions/metrics."""
 
@@ -335,7 +335,7 @@ class ReadoutStrategy(ABC):
         topo_meta: TopologyMeta,
         inverse_fn: Callable[[NpF64], NpF64] | None = None,
         metric_name: str = "NMSE",
-    ) -> tuple[float | None, float | None, dict, dict, dict | None, NpF64 | None]:
+    ) -> tuple[float | None, float | None, dict[float, float], dict[float, float], dict[float, NpF64] | None, NpF64 | None]:
         """
         Shared logic for RidgeCV optimization, model updating, and intermediate plotting.
         Returns: best_lambda, best_score, search_history, weight_norms, residuals_history, val_pred_np
@@ -346,7 +346,7 @@ class ReadoutStrategy(ABC):
             readout.fit(to_jax_f64(train_Z), to_jax_f64(train_y))
             val_pred_jax = readout.predict(to_jax_f64(val_Z))
             val_pred_np = to_np_f64(val_pred_jax) if val_pred_jax is not None else None
-            return None, None, {}, {}, {}, val_pred_np
+            return None, None, {}, {}, None, val_pred_np
 
         print(f"[strategies.py] Optimizing RidgeCV ({metric_name}) over {len(readout.lambda_candidates)} candidates (JAX Vectorized)...")
         
@@ -411,7 +411,7 @@ class ReadoutStrategy(ABC):
                 readout=readout,
                 metric_name=metric_name,
             )
-        except Exception as e:
+        except (ImportError, RuntimeError, ValueError, OSError, TypeError, AttributeError) as e:
             print(f"[Warning] Failed to generate intermediate plots: {e}")
             
         return best_lambda, best_score, search_history, weight_norms, residuals_history, best_val_pred_np
@@ -421,7 +421,7 @@ class EndToEndStrategy(ReadoutStrategy):
     """Strategy for End-to-End models where features are predictions."""
     
     def fit_and_evaluate(
-        self, model: ClosedLoopGenerativeModel, 
+        self, model: ClosedLoopModel, 
         readout: ReadoutModule | None, 
         train_Z: NpF64, 
         val_Z: NpF64 | None, 
@@ -433,7 +433,7 @@ class EndToEndStrategy(ReadoutStrategy):
         dataset_meta: DatasetMetadata, 
         pipeline_config: PipelineConfig,
         topo_meta: TopologyMeta,
-        val_final_state: tuple | None = None,
+        val_final_state: tuple[ModelState | None, JaxF64 | None] | None = None,
     ) -> FitResultDict:
         print("Readout is None. End-to-End mode.")
         
@@ -443,7 +443,7 @@ class EndToEndStrategy(ReadoutStrategy):
         if hasattr(model, 'adapter') and test_y is not None:
             aligned_test_y = model.adapter.align_targets(test_y)
 
-        result = {
+        result: FitResultDict = {
             "train_pred": train_Z,
             "val_pred": val_Z,
             "test_pred": test_Z,
@@ -473,7 +473,10 @@ class EndToEndStrategy(ReadoutStrategy):
                 # For E2E, readout is None or implicit, pass explicit None if needed, but signature says readout
                 # EndToEnd typically has readout=None.
                 readout_cast = cast("Predictable", readout)
-                closed_loop_pred = model.generate_closed_loop(seed_data, steps=generation_steps, readout=readout_cast)
+                closed_loop_pred = cast(
+                    "JaxF64",
+                    model.generate_closed_loop(seed_data, steps=generation_steps, readout=readout_cast),
+                )
                 
                 # Check for divergence
                 pred_std = float(np.std(closed_loop_pred))
@@ -490,7 +493,7 @@ class EndToEndStrategy(ReadoutStrategy):
 
                 result["closed_loop_pred"] = closed_loop_pred
                 result["closed_loop_truth"] = processed.test_y
-                result["chaos_results"] = chaos_results
+                result["chaos_results"] = cast("dict[str, float]", chaos_results)
              except (ValueError, RuntimeError) as e:
                 print(f"[Warning] FNN Closed-loop generation failed: {e}")
         
@@ -502,9 +505,9 @@ class ClassificationStrategy(ReadoutStrategy):
     """Open-Loop classification strategy with Accuracy optimization."""
     
     def fit_and_evaluate(
-        self, model: ClosedLoopGenerativeModel, readout: ReadoutModule | None, train_Z: NpF64, val_Z: NpF64 | None, test_Z: NpF64 | None, train_y: NpF64 | None, val_y: NpF64 | None, test_y: NpF64 | None, frontend_ctx: FrontendContext, dataset_meta: DatasetMetadata, pipeline_config: PipelineConfig,
+        self, model: ClosedLoopModel, readout: ReadoutModule | None, train_Z: NpF64, val_Z: NpF64 | None, test_Z: NpF64 | None, train_y: NpF64 | None, val_y: NpF64 | None, test_y: NpF64 | None, frontend_ctx: FrontendContext, dataset_meta: DatasetMetadata, pipeline_config: PipelineConfig,
         topo_meta: TopologyMeta,
-        val_final_state: tuple | None = None
+        val_final_state: tuple[ModelState | None, JaxF64 | None] | None = None
     ) -> FitResultDict:
         print("[strategies.py] Classification task: Using Open-Loop evaluation.")
         if readout is None:
@@ -607,7 +610,7 @@ class ClosedLoopRegressionStrategy(ReadoutStrategy):
 
     def fit_and_evaluate(
         self,
-            model: ClosedLoopGenerativeModel,
+            model: ClosedLoopModel,
             readout: ReadoutModule | None,
             train_Z: NpF64,
             val_Z: NpF64 | None,
@@ -619,20 +622,20 @@ class ClosedLoopRegressionStrategy(ReadoutStrategy):
             dataset_meta: DatasetMetadata,
             pipeline_config: PipelineConfig,
             topo_meta: TopologyMeta,
-            val_final_state: tuple | None = None
+            val_final_state: tuple[ModelState | None, JaxF64 | None] | None = None
     ) -> FitResultDict:
         if readout is None:
             raise ValueError("Readout must be provided for ClosedLoopRegressionStrategy")
 
-        metrics: dict[str, dict[str, Any]] = {}
+        metrics: dict[str, dict[str, float]] = {}
 
-        proj_fn = None
+        proj_fn: Callable[[JaxF64], JaxF64] | None = None
         # Check pipeline_config for projection, not dataset_meta
-        if pipeline_config.projection is not None and hasattr(frontend_ctx, "projection_layer"):
-             if frontend_ctx.projection_layer is not None:
-                 def proj_fn(x: JaxF64) -> JaxF64: return frontend_ctx.projection_layer(x)  # type: ignore
-             else:
-                 proj_fn = None
+        if pipeline_config.projection is not None and frontend_ctx.projection_layer is not None:
+            projection_layer = frontend_ctx.projection_layer
+
+            def proj_fn(x: JaxF64) -> JaxF64:
+                return projection_layer(x)
 
         tf_reshaped = self._flatten_3d_to_2d(train_Z, "train states")
         ty_reshaped = train_y
@@ -706,8 +709,40 @@ class ClosedLoopRegressionStrategy(ReadoutStrategy):
 
             # Store validation chaos metrics
             if "val" not in metrics:
-                metrics["val"] = {}
-            metrics["val"].update(val_metrics_chaos)
+                metrics["val"] = dict[str, float]()
+            mse = val_metrics_chaos.get("mse")
+            mae = val_metrics_chaos.get("mae")
+            nmse = val_metrics_chaos.get("nmse")
+            nrmse = val_metrics_chaos.get("nrmse")
+            mase = val_metrics_chaos.get("mase")
+            ndei = val_metrics_chaos.get("ndei")
+            var_ratio = val_metrics_chaos.get("var_ratio")
+            correlation = val_metrics_chaos.get("correlation")
+            vpt_steps = val_metrics_chaos.get("vpt_steps")
+            vpt_lt_metric = val_metrics_chaos.get("vpt_lt")
+            vpt_threshold = val_metrics_chaos.get("vpt_threshold")
+            if mse is not None:
+                metrics["val"]["mse"] = float(mse)
+            if mae is not None:
+                metrics["val"]["mae"] = float(mae)
+            if nmse is not None:
+                metrics["val"]["nmse"] = float(nmse)
+            if nrmse is not None:
+                metrics["val"]["nrmse"] = float(nrmse)
+            if mase is not None:
+                metrics["val"]["mase"] = float(mase)
+            if ndei is not None:
+                metrics["val"]["ndei"] = float(ndei)
+            if var_ratio is not None:
+                metrics["val"]["var_ratio"] = float(var_ratio)
+            if correlation is not None:
+                metrics["val"]["correlation"] = float(correlation)
+            if vpt_steps is not None:
+                metrics["val"]["vpt_steps"] = float(vpt_steps)
+            if vpt_lt_metric is not None:
+                metrics["val"]["vpt_lt"] = float(vpt_lt_metric)
+            if vpt_threshold is not None:
+                metrics["val"]["vpt_threshold"] = float(vpt_threshold)
             metrics["val"]["vpt_lt"] = val_metrics_chaos.get("vpt_lt", 0.0)
 
             if float(val_metrics_chaos.get("nmse", 0.0)) > 1e-5:
@@ -743,7 +778,8 @@ class ClosedLoopRegressionStrategy(ReadoutStrategy):
 
         # seed_data is already JAX array from _get_seed_sequence
         readout_cast = cast("Predictable", readout)
-        closed_loop_pred, closed_loop_hist = model.generate_closed_loop(
+        model_for_state = cast("ClosedLoopGenerativeModel[ModelState]", model)
+        closed_loop_pred, closed_loop_hist = model_for_state.generate_closed_loop(
             full_seed_data, 
             steps=generation_steps, 
             readout=readout_cast, 
@@ -760,7 +796,9 @@ class ClosedLoopRegressionStrategy(ReadoutStrategy):
 
         # Check for divergence
         pred_np = to_np_f64(closed_loop_pred)
-        truth_np = test_y if test_y is not None else np.array([])
+        if test_y is None:
+            raise ValueError("test_y is required for closed-loop regression statistics.")
+        truth_np = test_y
 
         pred_std = np.std(pred_np)
         pred_max = np.max(pred_np)
@@ -833,7 +871,7 @@ class ClosedLoopRegressionStrategy(ReadoutStrategy):
         # val_pred_np should already be set from RidgeCV or Else block above
         if val_pred_np is not None and val_y is not None:
             if "val" not in metrics:
-                 metrics["val"] = {}
+                 metrics["val"] = dict[str, float]()
             metrics["val"][self.metric_name] = compute_score(val_pred_np, val_y, self.metric_name)
 
         # Test - Automatically skipped if test_Z is None (from executor.py)

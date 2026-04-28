@@ -14,12 +14,13 @@ from reservoir.layers.aggregation import AggregationMode
 from reservoir.models.generative import ClosedLoopGenerativeModel
 from reservoir.layers.aggregation import create_aggregator
 
-from reservoir.core.types import JaxF64, TrainLogs, TopologyMeta
+from reservoir.core.types import JaxF64, TrainLogs, TopologyMeta  # noqa: TC001
+from reservoir.layers.projection import Projection  # noqa: TC001
 
 
 
 @beartype
-class PassthroughModel(ClosedLoopGenerativeModel):
+class PassthroughModel(ClosedLoopGenerativeModel[JaxF64]):
     """
     Model that skips dynamics (Step 5) and directly aggregates projected features.
     Implements the same interface as Reservoir for compatibility with GenericRunner.
@@ -32,7 +33,13 @@ class PassthroughModel(ClosedLoopGenerativeModel):
         self.topology_meta: TopologyMeta = {}
         self._n_units: int | None = None  # Set on first forward pass
 
-    def train(self, inputs: JaxF64, targets: JaxF64 | None = None, log_prefix: str = "4", **kwargs) -> TrainLogs:
+    def train(
+        self,
+        inputs: JaxF64,
+        targets: JaxF64 | None = None,
+        log_prefix: str = "4",
+        projection_layer: Projection | None = None,
+    ) -> TrainLogs:
         """No-op: Passthrough has no trainable parameters."""
         return {}
 

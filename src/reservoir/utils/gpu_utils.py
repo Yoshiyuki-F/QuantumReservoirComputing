@@ -1,10 +1,14 @@
 """/home/yoshi/PycharmProjects/Reservoir/src/reservoir/utils/gpu_utils.py
 Reservoir Computing用のGPUユーティリティ関数。
 """
-from collections.abc import Callable
 import re
 import shutil
 import subprocess
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from jax import Device
 
 def _assert_x64_enabled() -> None:
     """Raise if JAX x64 mode is not enabled."""
@@ -13,7 +17,7 @@ def _assert_x64_enabled() -> None:
         raise ValueError("CRITICAL: JAX x64 mode is NOT enabled. Double-check import order and environment variables.")
 
 
-def _assert_gpu_detected(gpu_devices: list, devices: list) -> None:
+def _assert_gpu_detected(gpu_devices: list[Device], devices: list[Device]) -> None:
     """Raise if no GPU devices are found."""
     if not gpu_devices:
         print("ERROR: GPU not detected!")
@@ -131,7 +135,7 @@ def check_gpu_available() -> bool:
         raise
 
 
-def require_gpu() -> Callable:
+def require_gpu() -> Callable[[Callable[[], None]], Callable[[], None]]:
     """GPUを必須とするテスト用のデコレータ。
     
     このデコレータを付けたテスト関数は、実行前に`check_gpu_available`を
@@ -149,7 +153,7 @@ def require_gpu() -> Callable:
     """
     import sys
     
-    def decorator(test_func: Callable) -> Callable:
+    def decorator(test_func: Callable[[], None]) -> Callable[[], None]:
         def wrapper() -> None:
             try:
                 check_gpu_available()

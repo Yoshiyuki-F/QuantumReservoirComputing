@@ -37,7 +37,8 @@ class PassthroughFactory:
             t_steps = int(input_shape[1] if len(input_shape) == 3 else input_shape[0])
             feature_units = model.get_feature_dim(projected_input_dim, t_steps)
             
-            def _with_batch(s): return (batch_dim,) + s if batch_dim else s
+            def _with_batch(s: tuple[int, ...]) -> tuple[int, ...]:
+                return (batch_dim,) + s if batch_dim else s
             
             if model_config.aggregation == AggregationMode.SEQUENCE:
                 feat_shape = _with_batch((t_steps, feature_units))

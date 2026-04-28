@@ -164,7 +164,7 @@ def generate_lorenz96_data(config: Lorenz96Config) -> tuple[NpF64, NpF64]:
     idx_minus_1 = (indices - 1) % N
     idx_plus_1 = (indices + 1) % N
 
-    def lorenz96_deriv(x):
+    def lorenz96_deriv(x: NpF64) -> NpF64:
         # dx/dt = (x[i+1] - x[i-2]) * x[i-1] - x[i] + F
         return (x[idx_plus_1] - x[idx_minus_2]) * x[idx_minus_1] - x + F
 

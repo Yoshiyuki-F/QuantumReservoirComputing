@@ -5,7 +5,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from reservoir.core.types import JaxF64, ConfigDict
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from reservoir.core.types import JaxF64, ConfigDict
 
 
 
@@ -26,4 +29,3 @@ class ReadoutModule(ABC):
 
 
 __all__ = ["ReadoutModule"]
-

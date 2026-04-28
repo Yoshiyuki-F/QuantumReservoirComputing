@@ -3,7 +3,10 @@ printing.py
 Utilities for pretty-printing model topology and status.
 """
 from collections.abc import Iterable
-from reservoir.core.types import TopologyMeta, ShapesMeta, DetailsMeta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from reservoir.core.types import TopologyMeta, ShapesMeta, DetailsMeta
 
 
 def _fmt_dim(shape: tuple[int, ...] | None) -> str:

@@ -1,8 +1,11 @@
 from reservoir.core.types import JaxF64, EvalMetrics, to_np_f64
 from reservoir.utils.metrics import calculate_chaos_metrics
 from reservoir.utils.reporting import print_chaos_metrics
-from reservoir.layers.preprocessing import Preprocessor
-from reservoir.data.config import BaseDatasetConfig
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from reservoir.data.config import BaseDatasetConfig
+    from reservoir.layers.preprocessing import Preprocessor
 
 class Evaluator:
     """Encapsulates evaluation logic including inverse transformation and metric calculation."""

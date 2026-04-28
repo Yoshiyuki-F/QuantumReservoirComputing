@@ -10,10 +10,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import TYPE_CHECKING
 
-from reservoir.core.types import NpF64
-
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from reservoir.core.types import NpF64
 
 
 def _find_project_root() -> Path:
@@ -93,7 +92,7 @@ def plot_classification_results(
         1,
     )
 
-    def _calc_acc(true_y, pred_y):
+    def _calc_acc(true_y: NpF64, pred_y: NpF64) -> float:
         if true_y.size == 0:
             return 0.0
         return float(np.mean(true_y == pred_y))
@@ -160,7 +159,7 @@ def plot_classification_results(
             fontsize=10,
         )
 
-    summary_parts = []
+    summary_parts: list[str] = []
     if best_lambda is not None:
         lambda_str = f"lambda*: {best_lambda:.3e}"
         norm_str = f" ||w||={float(lambda_norm):.3e}" if lambda_norm is not None else ""

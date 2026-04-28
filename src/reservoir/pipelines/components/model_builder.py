@@ -2,12 +2,12 @@
 from typing import TYPE_CHECKING
 
 from reservoir.models import ModelFactory
-from reservoir.models.presets import PipelineConfig
 from reservoir.pipelines.config import DatasetMetadata, FrontendContext, ModelStack
 from reservoir.readout.factory import ReadoutFactory
-from reservoir.layers.adapters import Adapter
 
 if TYPE_CHECKING:
+    from reservoir.layers.adapters import Adapter
+    from reservoir.models.presets import PipelineConfig
     from reservoir.core.types import TopologyMeta, ShapesMeta, DetailsMeta
 
 

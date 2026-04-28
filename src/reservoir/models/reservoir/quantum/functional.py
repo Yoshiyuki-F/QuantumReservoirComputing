@@ -35,21 +35,21 @@ def _get_fused_rotation_matrix(params: JaxF64) -> JaxF64:
     """Fuse RX, RY, RZ rotations into a single 2x2 unitary matrix."""
     tx, ty, tz = params[0], params[1], params[2]
 
-    def rot_x(p):
+    def rot_x(p: JaxF64) -> JaxF64:
         c = jnp.cos(p / 2)
         s = -1.0j * jnp.sin(p / 2)
         return jnp.stack(
             [jnp.stack([c, s], axis=-1), jnp.stack([s, c], axis=-1)], axis=-2
         )
 
-    def rot_y(p):
+    def rot_y(p: JaxF64) -> JaxF64:
         c = jnp.cos(p / 2)
         s = jnp.sin(p / 2)
         return jnp.stack(
             [jnp.stack([c, -s], axis=-1), jnp.stack([s, c], axis=-1)], axis=-2
         )
 
-    def rot_z(p):
+    def rot_z(p: JaxF64) -> JaxF64:
         c = jnp.cos(p / 2)
         s = -1.0j * jnp.sin(p / 2)
         en = c + s
@@ -130,13 +130,16 @@ def _make_circuit_logic(
     c = tc.Circuit(n_qubits)
     # Encoding: Fused Input + Feedback (applied to same pairs)
     for q_i in range(n_qubits):
-        c.unitary(q_i, (q_i + 1) % n_qubits, unitary=fused_unitaries[q_i])  # type: ignore
+        c.unitary(q_i, (q_i + 1) % n_qubits, unitary=fused_unitaries[q_i])  # type: ignore[bad-argument-type]
 
     state = c.state()
     if is_noisy and state.ndim == 1:
         state = jnp.outer(state, jnp.conj(state))
 
-    def layer_step(carry_state, layer_rotation_unitaries):
+    def layer_step(
+        carry_state: JaxF64 | tuple[JaxF64, JaxKey | None],
+        layer_rotation_unitaries: JaxF64,
+    ) -> tuple[JaxF64 | tuple[JaxF64, JaxKey | None], None]:
         current_key = None
         if is_mc:
             state_vec, current_key = carry_state
@@ -146,22 +149,24 @@ def _make_circuit_logic(
         else:
             lc = tc.Circuit(n_qubits, inputs=carry_state)
 
-        def apply_noise(noise_indices):
+        def apply_noise(noise_indices: list[int]) -> None:
             nonlocal current_key
             if not is_noisy:
                 return
             
-            r_array: jax.Array | None = None
+            r_array: JaxF64 | None = None
             if is_mc:
-                assert current_key is not None, "current_key must be initialized for MC noise"
+                if current_key is None:
+                    raise RuntimeError("current_key must be initialized for MC noise")
                 # Vectorized PRNG split: generate all random numbers for this batch of indices at once
                 k1, current_key = jax.random.split(cast("jax.Array", current_key))
                 r_array = jax.random.uniform(k1, shape=(len(noise_indices),))
                 
             for enum_i, target_idx in enumerate(noise_indices):
                 if is_mc:
-                    assert r_array is not None, "r_array must be initialized for MC noise"
-                    r = r_array[enum_i]  # type: ignore
+                    if r_array is None:
+                        raise RuntimeError("r_array must be initialized for MC noise")
+                    r = r_array[enum_i]
                     gate_idx = jnp.zeros((), dtype=jnp.int32)
                     gate_idx = jax.lax.select(
                         jnp.array(r < 3 * noise_prob, dtype=bool), jnp.array(3), gate_idx
@@ -180,36 +185,36 @@ def _make_circuit_logic(
                         ],
                         None,
                     )
-                    lc.unitary(target_idx, unitary=mat)  # type: ignore
+                    lc.unitary(target_idx, unitary=mat)  # type: ignore[bad-argument-type]
                 else:
                     if noise_type == "depolarizing":
-                        lc.depolarizing(  # type: ignore
+                        lc.depolarizing(  # type: ignore[bad-argument-type]
                             target_idx, px=noise_prob, py=noise_prob, pz=noise_prob
                         )
                     elif noise_type == "damping":
-                        lc.amplitude_damping(target_idx, gamma=noise_prob)  # type: ignore
+                        lc.amplitude_damping(target_idx, gamma=noise_prob)  # type: ignore[bad-argument-type]
 
         if use_reuploading:
             for enc_q_idx in range(n_qubits):
-                lc.unitary(enc_q_idx, (enc_q_idx + 1) % n_qubits, unitary=input_unitaries[enc_q_idx])  # type: ignore
+                lc.unitary(enc_q_idx, (enc_q_idx + 1) % n_qubits, unitary=input_unitaries[enc_q_idx])  # type: ignore[bad-argument-type]
             for noise_q_idx in range(n_qubits):
                 apply_noise([noise_q_idx])
 
         # Brickwork Entanglement
         for j in range(0, n_qubits - 1, 2):
-            lc.cnot(j, j + 1)  # type: ignore
+            lc.cnot(j, j + 1)  # type: ignore[bad-argument-type]
             apply_noise([j, j + 1])
         for j in range(1, n_qubits - 1, 2):
-            lc.cnot(j, j + 1)  # type: ignore
+            lc.cnot(j, j + 1)  # type: ignore[bad-argument-type]
             apply_noise([j, j + 1])
         for k in range(n_qubits):
-            lc.unitary(k, unitary=layer_rotation_unitaries[k])  # type: ignore
+            lc.unitary(k, unitary=layer_rotation_unitaries[k])  # type: ignore[bad-argument-type]
             apply_noise([k])
         for j in range(1, n_qubits - 1, 2):
-            lc.cnot(j, j + 1)  # type: ignore
+            lc.cnot(j, j + 1)  # type: ignore[bad-argument-type]
             apply_noise([j, j + 1])
         for j in range(0, n_qubits - 1, 2):
-            lc.cnot(j, j + 1)  # type: ignore
+            lc.cnot(j, j + 1)  # type: ignore[bad-argument-type]
             apply_noise([j, j + 1])
 
         new_state = lc.state()
@@ -230,18 +235,18 @@ def _make_circuit_logic(
 
 
 def _step_logic(
-    state,
-    step_input_unitaries,
-    reservoir_params,
-    measurement_matrix,
-    n_qubits,
-    feedback_scale,
-    leak_rate,
-    noise_type,
-    noise_prob,
-    use_remat,
-    use_reuploading,
-):
+    state: tuple[JaxF64, JaxKey | None],
+    step_input_unitaries: JaxF64,
+    reservoir_params: JaxF64,
+    measurement_matrix: JaxF64,
+    n_qubits: int,
+    feedback_scale: float,
+    leak_rate: float,
+    noise_type: str,
+    noise_prob: float,
+    use_remat: bool,
+    use_reuploading: bool,
+) -> tuple[tuple[JaxF64, JaxKey | None], JaxF64]:
     m_prev, rng_key = state  # m_prev: leaky-integrated feedback vector (N,)
     step_key = None
     next_key = None
@@ -273,18 +278,18 @@ def _step_logic(
     jax.jit, static_argnames=["n_qubits", "noise_type", "use_remat", "use_reuploading"]
 )
 def _step_jit(
-    state,
-    input_slice,
-    reservoir_params,
-    measurement_matrix,
-    n_qubits,
-    feedback_scale,
-    leak_rate,
-    noise_type,
-    noise_prob,
-    use_remat,
-    use_reuploading,
-):
+    state: tuple[JaxF64, JaxKey | None],
+    input_slice: JaxF64,
+    reservoir_params: JaxF64,
+    measurement_matrix: JaxF64,
+    n_qubits: int,
+    feedback_scale: float,
+    leak_rate: float,
+    noise_type: str,
+    noise_prob: float,
+    use_remat: bool,
+    use_reuploading: bool,
+) -> tuple[tuple[JaxF64, JaxKey | None], JaxF64]:
     # Per-qubit input diversification
     input_unitaries = _get_input_unitaries(input_slice, n_qubits)
     return _step_logic(
@@ -306,18 +311,18 @@ def _step_jit(
     jax.jit, static_argnames=["n_qubits", "noise_type", "use_remat", "use_reuploading"]
 )
 def _chunk_scan_jit(
-    state_carry,
-    chunk_input_unitaries,
-    reservoir_params,
-    measurement_matrix,
-    n_qubits,
-    feedback_scale,
-    leak_rate,
-    noise_type,
-    noise_prob,
-    use_remat,
-    use_reuploading,
-):
+    state_carry: tuple[JaxF64, JaxKey | None],
+    chunk_input_unitaries: JaxF64,
+    reservoir_params: JaxF64,
+    measurement_matrix: JaxF64,
+    n_qubits: int,
+    feedback_scale: float,
+    leak_rate: float,
+    noise_type: str,
+    noise_prob: float,
+    use_remat: bool,
+    use_reuploading: bool,
+) -> tuple[tuple[JaxF64, JaxKey | None], JaxF64]:
     step_func = partial(
         _step_logic,
         reservoir_params=reservoir_params,
@@ -338,18 +343,18 @@ def _chunk_scan_jit(
 
 
 def _forward_jit(
-    state_init,
-    inputs_time_major,
-    reservoir_params,
-    measurement_matrix,
-    n_qubits,
-    feedback_scale,
-    leak_rate,
-    noise_type,
-    noise_prob,
-    use_remat,
-    use_reuploading,
-):
+    state_init: tuple[JaxF64, JaxKey | None],
+    inputs_time_major: JaxF64,
+    reservoir_params: JaxF64,
+    measurement_matrix: JaxF64,
+    n_qubits: int,
+    feedback_scale: float,
+    leak_rate: float,
+    noise_type: str,
+    noise_prob: float,
+    use_remat: bool,
+    use_reuploading: bool,
+) -> tuple[tuple[JaxF64, JaxKey | None], JaxF64]:
     T, B, D = inputs_time_major.shape
 
     # 1. Pre-compute all unitaries for the entire sequence (Time, Batch, N, 4, 4)

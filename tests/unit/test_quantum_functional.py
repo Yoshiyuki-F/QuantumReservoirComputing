@@ -3,9 +3,9 @@ import jax
 # Enable 64-bit precision for complex128 before importing jax.numpy
 jax.config.update("jax_enable_x64", True)
 
-import jax.numpy as jnp
-from reservoir.models.reservoir.quantum.functional import _make_circuit_logic, _get_paper_R_unitary
-import tensorcircuit as tc
+import jax.numpy as jnp  # noqa: E402
+from reservoir.models.reservoir.quantum.functional import _make_circuit_logic, _get_paper_R_unitary  # noqa: E402
+import tensorcircuit as tc  # noqa: E402
 
 # Set dtype and backend globally for tests
 tc.set_dtype("complex128")
@@ -14,8 +14,8 @@ tc.set_backend("jax")
 def get_valid_unitaries(shape):
     # To avoid tc errors, let's just make identity matrices
     L, n_qubits, _, _ = shape
-    I = jnp.eye(2, dtype=jnp.complex128)
-    return jnp.tile(I, (L, n_qubits, 1, 1))
+    identity = jnp.eye(2, dtype=jnp.complex128)
+    return jnp.tile(identity, (L, n_qubits, 1, 1))
 
 def test_make_circuit_logic_runs():
     tc.set_backend("jax")

@@ -4,11 +4,13 @@ Refactored Ridge regression designed with SOLID principles.
 """
 import jax
 import jax.numpy as jnp
-from typing import TypedDict
-from reservoir.core.types import JaxF64, ConfigDict
+from typing import TypedDict, cast, TYPE_CHECKING
 import jax.scipy.linalg
 
 from reservoir.readout.base import ReadoutModule
+
+if TYPE_CHECKING:
+    from reservoir.core.types import JaxF64, ConfigDict
 
 # Robustness: Ridge Regression often requires x64 for matrix inversion stability.
 def _ensure_x64() -> None:
@@ -24,6 +26,43 @@ class _RidgeData(TypedDict, total=False):
     intercept: tuple[float, ...] | float | None
     lambda_candidates: tuple[float, ...]
     norm_threshold: float | None
+
+
+def _parse_float_tuple(value: ConfigDict) -> tuple[float, ...]:
+    return tuple(float(v) for v in cast("tuple[float, ...]", value))
+
+
+def _parse_ridge_data(data: ConfigDict) -> _RidgeData:
+    parsed: _RidgeData = {}
+
+    ridge_lambda = data.get("ridge_lambda")
+    if ridge_lambda is not None:
+        parsed["ridge_lambda"] = float(str(ridge_lambda))
+
+    use_intercept = data.get("use_intercept")
+    if use_intercept is not None:
+        parsed["use_intercept"] = bool(use_intercept)
+
+    coef = data.get("coef")
+    if coef is not None:
+        parsed["coef"] = _parse_float_tuple(cast("ConfigDict", coef))
+
+    intercept = data.get("intercept")
+    if intercept is not None:
+        try:
+            parsed["intercept"] = _parse_float_tuple(cast("ConfigDict", intercept))
+        except TypeError:
+            parsed["intercept"] = float(str(intercept))
+
+    lambda_candidates = data.get("lambda_candidates")
+    if lambda_candidates is not None:
+        parsed["lambda_candidates"] = _parse_float_tuple(cast("ConfigDict", lambda_candidates))
+
+    norm_threshold = data.get("norm_threshold")
+    if norm_threshold is not None:
+        parsed["norm_threshold"] = float(str(norm_threshold))
+
+    return parsed
 
 class RidgeRegression(ReadoutModule):
     """
@@ -45,7 +84,7 @@ class RidgeRegression(ReadoutModule):
         ones = jnp.ones((n_samples, 1))
         return jnp.concatenate([ones, X], axis=1)
 
-    def fit(self, states: JaxF64, targets: JaxF64) -> "RidgeRegression":
+    def fit(self, states: JaxF64, targets: JaxF64) -> RidgeRegression:
         _ensure_x64()
         # Inputs are already JaxF64 per type hint
         X = states
@@ -114,8 +153,8 @@ class RidgeRegression(ReadoutModule):
         }
 
     @classmethod
-    def from_dict(cls, data: ConfigDict) -> "RidgeRegression":
-        d: _RidgeData = data  # type: ignore[assignment]  # ConfigDict → _RidgeData at boundary
+    def from_dict(cls, data: ConfigDict) -> RidgeRegression:
+        d = _parse_ridge_data(data)
         r_lam = float(d.get("ridge_lambda", 0.0))
         model = cls(
             ridge_lambda=r_lam,
@@ -162,7 +201,7 @@ class RidgeCV(ReadoutModule):
     def intercept_(self) -> JaxF64 | None:
         return self.best_model.intercept_ if self.best_model else None
 
-    def fit(self, states: JaxF64, targets: JaxF64) -> "RidgeCV":
+    def fit(self, states: JaxF64, targets: JaxF64) -> RidgeCV:
         """Fit using current best/default lambda."""
         if self.best_model is None:
              self.best_model = RidgeRegression(self.lambda_candidates[0], self.use_intercept)
@@ -182,8 +221,8 @@ class RidgeCV(ReadoutModule):
         return res
 
     @classmethod
-    def from_dict(cls, data: ConfigDict) -> "RidgeCV":
-        d: _RidgeData = data  # type: ignore[assignment]  # ConfigDict → _RidgeData at boundary
+    def from_dict(cls, data: ConfigDict) -> RidgeCV:
+        d = _parse_ridge_data(data)
         candidates_list = d.get("lambda_candidates")
         if candidates_list is None:
              lam_val = d.get("ridge_lambda", 0.0)

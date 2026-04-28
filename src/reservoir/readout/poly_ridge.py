@@ -13,12 +13,13 @@ Two modes:
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 import jax.numpy as jnp
 
 from reservoir.readout.ridge import RidgeCV
 
-from reservoir.core.types import JaxF64, ConfigDict
+if TYPE_CHECKING:
+    from reservoir.core.types import JaxF64, ConfigDict
 
 
 
@@ -34,7 +35,7 @@ class PolyRidgeReadout(RidgeCV):
         self,
         lambda_candidates: tuple[float, ...],
         use_intercept: bool,
-        degree,
+        degree: int,
         mode: Literal["full", "square_only", "interaction_only"],
         norm_threshold: float | None
     ) -> None:

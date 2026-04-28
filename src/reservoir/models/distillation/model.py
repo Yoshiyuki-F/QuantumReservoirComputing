@@ -5,16 +5,19 @@ import jax
 import jax.numpy as jnp
 
 from reservoir.models.generative import ClosedLoopGenerativeModel
-from reservoir.models.reservoir.base import Reservoir
+from reservoir.models.reservoir.base import ReservoirModel  # noqa: TC001
 
-from reservoir.core.types import JaxF64, TrainLogs, EvalMetrics, KwargsDict, TopologyMeta, to_np_f64, to_jax_f64
-from reservoir.models.nn.fnn import FNNModel
-from reservoir.training.presets import TrainingConfig
+from reservoir.core.types import JaxF64, TrainLogs, EvalMetrics, KwargsDict, TopologyMeta
+from reservoir.core.types import to_np_f64
+from reservoir.core.types import to_jax_f64
+from reservoir.models.nn.fnn import FNNModel  # noqa: TC001
+from reservoir.training.presets import TrainingConfig  # noqa: TC001
 from reservoir.utils.batched_compute import batched_compute
+from reservoir.layers.projection import Projection  # noqa: TC001
 
 
 @beartype
-class DistillationModel(ClosedLoopGenerativeModel):
+class DistillationModel(ClosedLoopGenerativeModel[JaxF64]):
     """
     Distills reservoir dynamics into a student FNN.
     Teacher: ClassicalReservoir (handles aggregation internally; no gradients).
@@ -30,7 +33,7 @@ class DistillationModel(ClosedLoopGenerativeModel):
 
     def __init__(
         self,
-        teacher: Reservoir,
+        teacher: ReservoirModel,
         student: FNNModel,
         training_config: TrainingConfig | None = None,
     ):
@@ -41,18 +44,35 @@ class DistillationModel(ClosedLoopGenerativeModel):
         self._input_dim: int | None = None
         self._window_size: int = getattr(student, 'window_size', 1) or 1
 
-    def __call__(self, inputs: JaxF64, params: KwargsDict | None = None, **kwargs) -> JaxF64:
-        return self.predict(inputs, params=params, **kwargs)
+    def __call__(
+        self,
+        inputs: JaxF64,
+        params: KwargsDict | None = None,
+        projection_layer: Projection | None = None,
+    ) -> JaxF64:
+        return self.predict(inputs, params=params, projection_layer=projection_layer)
 
-    def predict(self, X: JaxF64, params: KwargsDict | None = None, **kwargs) -> JaxF64:
+    def predict(
+        self,
+        X: JaxF64,
+        params: KwargsDict | None = None,
+        projection_layer: Projection | None = None,
+    ) -> JaxF64:
         return self.student.predict(X)
 
-    def _compute_teacher_targets(self, inputs: JaxF64, **kwargs) -> JaxF64:
+    def _compute_teacher_targets(self, inputs: JaxF64, projection_layer: Projection | None = None) -> JaxF64:
         """Legacy single-batch implementation."""
-        teacher_outputs = self.teacher(inputs, **kwargs)
+        teacher_inputs = projection_layer(inputs) if projection_layer is not None else inputs
+        teacher_outputs = self.teacher(teacher_inputs)
         return jax.lax.stop_gradient(teacher_outputs)
 
-    def train(self, inputs: JaxF64, targets: JaxF64 | None = None, log_prefix: str = "4", **kwargs) -> TrainLogs:
+    def train(
+        self,
+        inputs: JaxF64,
+        targets: JaxF64 | None = None,
+        log_prefix: str = "4",
+        projection_layer: Projection | None = None,
+    ) -> TrainLogs:
         """
         Orchestrate the distillation process with clear phase separation in logs.
         """
@@ -60,12 +80,13 @@ class DistillationModel(ClosedLoopGenerativeModel):
         print("[Distillation] Phase A: Teacher Target Generation")
         print("[Distillation] ==========================================")
 
-        projection_layer = kwargs.get("projection_layer")
+        if self.training_config is None:
+            raise ValueError("DistillationModel requires training_config for batching.")
         batch_sz = self.training_config.batch_size
         
         def teacher_fn(x: JaxF64) -> JaxF64:
             x_proj = projection_layer(x) if projection_layer is not None else x
-            return jax.lax.stop_gradient(self.teacher(x_proj, **kwargs))
+            return jax.lax.stop_gradient(self.teacher(x_proj))
 
         targets_np = batched_compute(
             teacher_fn,
@@ -84,24 +105,35 @@ class DistillationModel(ClosedLoopGenerativeModel):
 
         # We pass raw inputs and teacher_targets. 
         # FNNModel will handle the projection inside its JIT loop to avoid OOM.
-        student_logs = self.student.train(inputs, teacher_targets, log_prefix="4B", **kwargs) or {}
+        student_logs = self.student.train(
+            inputs,
+            teacher_targets,
+            log_prefix="4B",
+            projection_layer=projection_layer,
+        ) or {}
 
         distill_mse = float(student_logs.get("final_loss", 0.0))
         student_logs.setdefault("distill_mse", distill_mse)
         student_logs.setdefault("final_loss", distill_mse)
         return student_logs
 
-    def evaluate(self, X: JaxF64, y: JaxF64 | None = None, **kwargs) -> EvalMetrics:
+    def evaluate(
+        self,
+        X: JaxF64,
+        y: JaxF64 | None = None,
+        projection_layer: Projection | None = None,
+    ) -> EvalMetrics:
         """
         Distillation evaluation: compare student output with teacher output.
         """
         import jax
+        if self.training_config is None:
+            raise ValueError("DistillationModel requires training_config for batching.")
         batch_sz = self.training_config.batch_size
 
         def teacher_fn(x: JaxF64) -> JaxF64:
-            projection_layer = kwargs.get("projection_layer")
             x_proj = projection_layer(x) if projection_layer is not None else x
-            return jax.lax.stop_gradient(self.teacher(x_proj, **kwargs))
+            return jax.lax.stop_gradient(self.teacher(x_proj))
 
         if X.shape[0] > batch_sz:
             targets_np = batched_compute(
@@ -114,9 +146,9 @@ class DistillationModel(ClosedLoopGenerativeModel):
             )
             teacher_targets = to_jax_f64(targets_np)
         else:
-            teacher_targets = self._compute_teacher_targets(X, **kwargs)
+            teacher_targets = self._compute_teacher_targets(X, projection_layer=projection_layer)
 
-        student_metrics = self.student.evaluate(X, teacher_targets, **kwargs)
+        student_metrics = self.student.evaluate(X, teacher_targets)
         return student_metrics
 
     def get_topology_meta(self) -> TopologyMeta:

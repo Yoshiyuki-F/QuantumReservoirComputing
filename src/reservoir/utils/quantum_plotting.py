@@ -6,8 +6,10 @@ from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
 
-from reservoir.core.types import NpF64
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from reservoir.core.types import NpF64
 
 from reservoir.utils.plotting import _resolve_output_path
 

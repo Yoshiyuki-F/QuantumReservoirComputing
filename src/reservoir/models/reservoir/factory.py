@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from reservoir.core.types import TopologyMeta
-    from reservoir.models.reservoir.base import Reservoir
+    from reservoir.models.reservoir.base import ReservoirModel
 
 
 class ReservoirFactory:
@@ -26,7 +26,7 @@ class ReservoirFactory:
         projected_input_dim: int,
         output_dim: int,
         input_shape: tuple[int, ...] | None,
-    ) -> Reservoir:
+    ) -> ReservoirModel:
         """
         Assemble reservoir node with embedded aggregation (Steps 5-6).
         Assumes inputs are already projected to the reservoir dimensionality (input_dim).

@@ -10,10 +10,19 @@ import jax
 import jax.numpy as jnp
 from typing import TYPE_CHECKING
 
-from reservoir.core.types import JaxF64
+from reservoir.core.types import JaxF64  # noqa: TC001
 
 if TYPE_CHECKING:
     from reservoir.core.types import ConfigDict
+    from reservoir.models.config import (
+        BoundedAffinePCAConfig,
+        CenterCropProjectionConfig,
+        PCAProjectionConfig,
+        PolynomialProjectionConfig,
+        ProjectionConfig,
+        RandomProjectionConfig,
+        ResizeProjectionConfig,
+    )
 
 
 # --- 1. Interface Definition ---
@@ -447,7 +456,10 @@ class BoundedAffinePCA(PCAProjection):
         super().fit(X)
 
         # Project training data through PCA (no affine yet)
-        pca_out = jnp.dot(X.reshape(-1, X.shape[-1]), self._components.T)  # type: ignore[union-attr]
+        components = self._components
+        if components is None:
+            raise RuntimeError("BoundedAffinePCA components are not initialized after fit().")
+        pca_out = jnp.dot(X.reshape(-1, X.shape[-1]), components.T)
 
         # Per-component min/max for normalization
         self._pca_min = jnp.min(pca_out, axis=0)  # (n_units,)
@@ -491,9 +503,6 @@ class BoundedAffinePCA(PCAProjection):
         f_max = (self.bound * self.scale) + self._shift
         return f"BAPCA{self.n_units}_Min{f_min:.2f}Max{f_max:.2f}"
 
-if TYPE_CHECKING:
-    from reservoir.models.config import ProjectionConfig
-
 # --- 3. The Factory Logic (Dependency Injection Helper) ---
 
 @singledispatch
@@ -505,27 +514,27 @@ def create_projection(config: ProjectionConfig, input_dim: int) -> Projection:
     raise TypeError(f"Unknown projection config type: {type(config)}")
 
 def register_projections(
-    CenterCropConfigClass: type, 
-    RandomProjectionConfigClass: type,
-    ResizeProjectionConfigClass: type,
-    PolynomialProjectionConfigClass: type | None = None,
-    PCAProjectionConfigClass: type | None = None,
-    CoherentDriveConfigClass: type | None = None,
-    BoundedAffinePCAConfigClass: type | None = None,
-):
+    CenterCropConfigClass: type[CenterCropProjectionConfig],
+    RandomProjectionConfigClass: type[RandomProjectionConfig],
+    ResizeProjectionConfigClass: type[ResizeProjectionConfig],
+    PolynomialProjectionConfigClass: type[PolynomialProjectionConfig] | None = None,
+    PCAProjectionConfigClass: type[PCAProjectionConfig] | None = None,
+    CoherentDriveConfigClass: type[RandomProjectionConfig] | None = None,
+    BoundedAffinePCAConfigClass: type[BoundedAffinePCAConfig] | None = None,
+) -> None:
     """
     Call this function once to register the handlers.
     """
 
     @create_projection.register(CenterCropConfigClass)
-    def _(config, input_dim: int) -> CenterCropProjection:
+    def _(config: CenterCropProjectionConfig, input_dim: int) -> CenterCropProjection:
         return CenterCropProjection(
             input_dim=int(input_dim),
             output_dim=int(config.n_units),
         )
 
     @create_projection.register(RandomProjectionConfigClass)
-    def _(config, input_dim: int) -> RandomProjection:
+    def _(config: RandomProjectionConfig, input_dim: int) -> RandomProjection:
         return RandomProjection(
             input_dim=int(input_dim),
             output_dim=int(config.n_units),
@@ -536,7 +545,7 @@ def register_projections(
         )
 
     @create_projection.register(ResizeProjectionConfigClass)
-    def _(config, input_dim: int) -> ResizeProjection:
+    def _(config: ResizeProjectionConfig, input_dim: int) -> ResizeProjection:
         return ResizeProjection(
             input_dim=int(input_dim),
             output_dim=int(config.n_units),
@@ -544,7 +553,7 @@ def register_projections(
 
     if PolynomialProjectionConfigClass is not None:
         @create_projection.register(PolynomialProjectionConfigClass)
-        def _(config, input_dim: int) -> PolynomialProjection:
+        def _(config: PolynomialProjectionConfig, input_dim: int) -> PolynomialProjection:
             return PolynomialProjection(
                 input_dim=int(input_dim),
                 degree=int(config.degree),
@@ -553,7 +562,7 @@ def register_projections(
 
     if PCAProjectionConfigClass is not None:
         @create_projection.register(PCAProjectionConfigClass)
-        def _(config, input_dim: int) -> PCAProjection:
+        def _(config: PCAProjectionConfig, input_dim: int) -> PCAProjection:
             return PCAProjection(
                 input_dim=int(input_dim),
                 n_units=int(config.n_units),
@@ -562,7 +571,7 @@ def register_projections(
 
     if CoherentDriveConfigClass is not None:
         @create_projection.register(CoherentDriveConfigClass)
-        def _(config, input_dim: int) -> CoherentDriveProjection:
+        def _(config: RandomProjectionConfig, input_dim: int) -> CoherentDriveProjection:
             return CoherentDriveProjection(
                 input_dim=int(input_dim),
                 output_dim=int(config.n_units),
@@ -574,7 +583,7 @@ def register_projections(
 
     if BoundedAffinePCAConfigClass is not None:
         @create_projection.register(BoundedAffinePCAConfigClass)
-        def _(config, input_dim: int) -> BoundedAffinePCA:
+        def _(config: BoundedAffinePCAConfig, input_dim: int) -> BoundedAffinePCA:
             return BoundedAffinePCA(
                 input_dim=int(input_dim),
                 n_units=int(config.n_units),

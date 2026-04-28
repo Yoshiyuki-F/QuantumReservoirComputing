@@ -5,14 +5,10 @@ Adapter is selected based on FNNConfig: Flatten (default) or TimeDelayEmbedding 
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-from reservoir.training.presets import TrainingConfig
-from reservoir.core.types import JaxF64, TrainLogs
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence, Callable
-    from reservoir.core.types import EvalMetrics
-    from reservoir.models.generative import Predictable
+from collections.abc import Sequence, Callable  # noqa: TC003
+from reservoir.training.presets import TrainingConfig  # noqa: TC001
+from reservoir.core.types import JaxF64, TrainLogs, EvalMetrics  # noqa: TC001
+from reservoir.layers.projection import Projection  # noqa: TC001
 
 from beartype import beartype
 import flax.linen as nn
@@ -20,7 +16,7 @@ import jax.numpy as jnp
 
 from reservoir.models.config import FNNConfig
 from reservoir.models.nn.base import BaseFlaxModel
-from reservoir.models.generative import ClosedLoopGenerativeModel
+from reservoir.models.generative import ClosedLoopGenerativeModel, Predictable  # noqa: TC001
 from reservoir.layers.adapters import Adapter, Flatten, TimeDelayEmbedding
 
 
@@ -29,7 +25,7 @@ _LOGGED_ONCE = False
 
 
 @beartype
-class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel):
+class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel[JaxF64]):
     """
     FNN with configurable adapter (Step 4).
     
@@ -73,21 +69,26 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel):
 
         super().__init__({"layer_dims": self.layer_dims}, classification=classification, training_config=training_config)
 
-    def train(self, inputs: JaxF64, targets: JaxF64 | None = None, log_prefix: str = "4", **kwargs) -> TrainLogs:
+    def train(
+        self,
+        inputs: JaxF64,
+        targets: JaxF64 | None = None,
+        log_prefix: str = "4",
+        projection_layer: Projection | None = None,
+        adapter: Adapter | None = None,
+    ) -> TrainLogs:
         """Train with optional on-the-fly projection and adaptation inside the batched loop."""
-        adapter_name = self.adapter.__class__.__name__
-        if self.window_size:
-             adapter_name = f"TimeDelayEmbedding(k={self.window_size})"
-
-        kwargs["adapter"] = self.adapter
-        kwargs["log_prefix"] = log_prefix
-        
         # We pass raw inputs directly to base class which will handle batching, projection, and adaptation
-        return super().train(inputs, targets, **kwargs)
+        return super().train(
+            inputs,
+            targets,
+            log_prefix=log_prefix,
+            projection_layer=projection_layer,
+            adapter=self.adapter,
+        )
 
-    def predict(self, X: JaxF64, **kwargs) -> JaxF64:
+    def predict(self, X: JaxF64, projection_layer: Projection | None = None) -> JaxF64:
         """Predict with optional dynamic projection and adapter-transformed inputs."""
-        projection_layer = kwargs.get("projection_layer")
         if projection_layer is not None:
              X = projection_layer(X)
              
@@ -174,7 +175,7 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel):
                 initial_window = jnp.concatenate([padding, input_data], axis=1)
             
             # Process seed through the windowed FNN to get outputs
-            outputs = []
+            outputs: list[JaxF64] = []
             for t in range(self.window_size - 1, seq_len):
                 # Build window from input_data
                 window = input_data[:, t - self.window_size + 1:t + 1, :]  # (batch, window_size, feat)
@@ -187,7 +188,7 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel):
             return initial_window, output_seq
         else:
             # Non-windowed: predict each timestep
-            outputs = []
+            outputs: list[JaxF64] = []
             for t in range(seq_len):
                 step_input = input_data[:, t, :]
                 output = super().predict(step_input)
@@ -197,21 +198,28 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel):
 
     def generate_closed_loop(
         self,
-        seed_data: JaxF64,
+        seed_data: JaxF64 | None,
         steps: int,
         readout: Predictable | None = None,
         projection_fn: Callable[[JaxF64], JaxF64] | None = None,
-        verbose: bool = True
-    ) -> JaxF64:
+        verbose: bool = True,
+        initial_state: JaxF64 | None = None,
+        initial_output: JaxF64 | None = None,
+        return_history: bool = False,
+    ) -> JaxF64 | tuple[JaxF64, JaxF64]:
         """
         FNN-specific closed-loop generation using simple 2D arrays.
         Optimized with jax.lax.scan for speed.
         """
         import jax
+
+        if seed_data is None:
+            raise ValueError("FNNModel.generate_closed_loop requires seed_data.")
         
         if self.window_size is None:
             # Non-windowed: just predict directly
-            return self.predict(seed_data)
+            predictions = self.predict(seed_data)
+            return (predictions, predictions) if return_history else predictions
         
         # seed_data: (time, features) - use last window_size values as initial state
         seed = seed_data
@@ -231,7 +239,7 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel):
         if verbose:
             print(f"    [FNN] Generating {steps} steps (JAX scan, window={W})...")
         
-        def scan_step(window_state, _):
+        def scan_step(window_state: JaxF64, _: None) -> tuple[JaxF64, JaxF64]:
             # window_state: (W, features)
             # Flatten to (1, W * features) for FNN
             windowed_input = window_state.reshape(1, -1)
@@ -245,7 +253,7 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel):
         _, predictions = jax.lax.scan(scan_step, window, None, length=steps)
         
         # predictions: (steps, output_dim)
-        return predictions
+        return (predictions, predictions) if return_history else predictions
 
 
 class FNN(nn.Module):

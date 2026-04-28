@@ -10,10 +10,18 @@ from beartype import beartype
 import numpy as np
 from typing import TYPE_CHECKING
 
-from reservoir.core.types import NpF64
+from reservoir.core.types import NpF64  # noqa: TC001
 
 if TYPE_CHECKING:
     from reservoir.core.types import ConfigDict
+    from reservoir.models.config import (
+        AffineScalerConfig,
+        BoundedAffineScalerConfig,
+        MinMaxScalerConfig,
+        PreprocessingConfig,
+        RawConfig,
+        StandardScalerConfig,
+    )
 
 
 # --- 1. Interface Definition ---
@@ -84,10 +92,7 @@ class StandardScaler(Preprocessor):
         return self
 
     def transform(self, X: NpF64) -> NpF64:
-        if not isinstance(X, np.ndarray):
-            raise TypeError(f"StandardScaler requires numpy.ndarray for in-place optimization, got {type(X)}")
-        
-        arr = X.copy()
+        arr = X
         if self.mean_ is not None:
             arr -= self.mean_
         if self.scale_ is not None:
@@ -95,10 +100,7 @@ class StandardScaler(Preprocessor):
         return arr
 
     def inverse_transform(self, X: NpF64) -> NpF64:
-        if not isinstance(X, np.ndarray):
-            raise TypeError(f"StandardScaler requires numpy.ndarray for in-place optimization, got {type(X)}")
-            
-        arr = X.copy()
+        arr = X
         if self.scale_ is not None:
             arr *= self.scale_
         if self.mean_ is not None:
@@ -149,10 +151,7 @@ class MinMaxScaler(Preprocessor):
         return self
 
     def transform(self, X: NpF64) -> NpF64:
-        if not isinstance(X, np.ndarray):
-            raise TypeError(f"MinMaxScaler requires numpy.ndarray, got {type(X)}")
-            
-        arr = X.copy()
+        arr = X
         # 1. Scale to [0, 1]
         if self.min_ is not None and self.range_ is not None:
             arr -= self.min_
@@ -166,10 +165,7 @@ class MinMaxScaler(Preprocessor):
         return arr
 
     def inverse_transform(self, X: NpF64) -> NpF64:
-        if not isinstance(X, np.ndarray):
-            raise TypeError(f"MinMaxScaler requires numpy.ndarray, got {type(X)}")
-            
-        arr = X.copy()
+        arr = X
         # 1. Reverse Scale to [0, 1]
         scale = self.feature_max - self.feature_min
         if scale != 0:
@@ -233,23 +229,17 @@ class AffineScaler(Preprocessor):
         return self
 
     def transform(self, X: NpF64) -> NpF64:
-        if not isinstance(X, np.ndarray):
-            raise TypeError(f"AffineScaler requires numpy.ndarray, got {type(X)}")
-        
-        arr = X.copy()
+        arr = X
         arr *= self.input_scale
         arr += self.shift
         return arr
 
     def inverse_transform(self, X: NpF64) -> NpF64:
-        if not isinstance(X, np.ndarray):
-            raise TypeError(f"AffineScaler requires numpy.ndarray, got {type(X)}")
-            
         # Avoid division by zero
         if self.input_scale == 0:
             return X
             
-        arr = X.copy()
+        arr = X
         arr -= self.shift
         arr /= self.input_scale
         return arr
@@ -333,9 +323,6 @@ class BoundedAffineScaler(Preprocessor):
         return f"Min{f_min:.2f}Max{f_max:.2f}"
 
 
-if TYPE_CHECKING:
-    from reservoir.models.config import PreprocessingConfig
-
 # --- 3. Factory Logic (Dependency Injection Helper) ---
 
 @singledispatch
@@ -348,38 +335,38 @@ def create_preprocessor(config: PreprocessingConfig) -> Preprocessor:
 
 
 def register_preprocessors(
-    RawConfigClass: type,
-    StandardScalerConfigClass: type,
-    MinMaxScalerConfigClass: type | None = None,
-    AffineScalerConfigClass: type | None = None,
-    BoundedAffineScalerConfigClass: type | None = None,
-):
+    RawConfigClass: type[RawConfig],
+    StandardScalerConfigClass: type[StandardScalerConfig],
+    MinMaxScalerConfigClass: type[MinMaxScalerConfig] | None = None,
+    AffineScalerConfigClass: type[AffineScalerConfig] | None = None,
+    BoundedAffineScalerConfigClass: type[BoundedAffineScalerConfig] | None = None,
+) -> None:
     """
     Register config classes with the factory.
     Call this once at module initialization.
     """
 
     @create_preprocessor.register(RawConfigClass)
-    def _(_config) -> Preprocessor:
+    def _(_config: RawConfig) -> Preprocessor:
         return IdentityPreprocessor()
 
     @create_preprocessor.register(StandardScalerConfigClass)
-    def _(_config) -> Preprocessor:
+    def _(_config: StandardScalerConfig) -> Preprocessor:
         return StandardScaler()
 
     if MinMaxScalerConfigClass is not None:
         @create_preprocessor.register(MinMaxScalerConfigClass)
-        def _(config) -> Preprocessor:
+        def _(config: MinMaxScalerConfig) -> Preprocessor:
             return MinMaxScaler(feature_min=config.feature_min, feature_max=config.feature_max)
 
     if AffineScalerConfigClass is not None:
         @create_preprocessor.register(AffineScalerConfigClass)
-        def _(config) -> Preprocessor:
+        def _(config: AffineScalerConfig) -> Preprocessor:
             return AffineScaler(input_scale=config.input_scale, shift=config.shift)
 
     if BoundedAffineScalerConfigClass is not None:
         @create_preprocessor.register(BoundedAffineScalerConfigClass)
-        def _(config) -> Preprocessor:
+        def _(config: BoundedAffineScalerConfig) -> Preprocessor:
             return BoundedAffineScaler(scale=config.scale, relative_shift=config.relative_shift, bound=config.bound)
 
 

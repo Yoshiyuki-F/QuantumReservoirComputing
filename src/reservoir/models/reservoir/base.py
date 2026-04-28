@@ -11,7 +11,7 @@ from reservoir.layers.aggregation import AggregationMode
 from reservoir.layers.aggregation import create_aggregator
 from reservoir.models.generative import ClosedLoopGenerativeModel
 
-StateT = TypeVar('StateT')
+StateT = TypeVar("StateT", default=JaxF64)
 
 class ReservoirConfig(TypedDict):
     n_units: int
@@ -19,7 +19,7 @@ class ReservoirConfig(TypedDict):
     aggregation: str
 
 @beartype
-class Reservoir[StateT](ClosedLoopGenerativeModel, ABC):
+class Reservoir[StateT](ClosedLoopGenerativeModel[StateT], ABC):
     """Abstract base class providing common scan-based trajectory generation."""
 
     def __init__(self, n_units: int, seed: int, leak_rate: float, aggregation_mode: AggregationMode) -> None:
@@ -99,3 +99,5 @@ class Reservoir[StateT](ClosedLoopGenerativeModel, ABC):
         init_state = self.initialize_state(batch_size)
         return self.generate_trajectory(init_state, arr)
 
+
+type ReservoirModel = Reservoir[JaxF64] | Reservoir[tuple[JaxF64, JaxF64 | None]]

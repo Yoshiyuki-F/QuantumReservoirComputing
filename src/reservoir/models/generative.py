@@ -3,22 +3,21 @@ src/reservoir/models/generative.py
 Base implementation for generative models providing closed-loop generation.
 """
 from abc import ABC, abstractmethod
+from collections.abc import Callable  # noqa: TC003
 from typing import TypeVar, Protocol, runtime_checkable
-from collections.abc import Callable
 
 from beartype import beartype
 import jax
 import jax.numpy as jnp
 from reservoir.core.types import JaxF64, TrainLogs, TopologyMeta
-
-
+from reservoir.layers.projection import Projection  # noqa: TC001
 
 
 @runtime_checkable
 class Predictable(Protocol):
     def predict(self, x: JaxF64) -> JaxF64: ...
 
-StateT = TypeVar('StateT')
+StateT = TypeVar("StateT", default=JaxF64)
 
 @beartype
 class ClosedLoopGenerativeModel[StateT](ABC):
@@ -29,7 +28,13 @@ class ClosedLoopGenerativeModel[StateT](ABC):
 
     topology_meta: TopologyMeta
 
-    def train(self, inputs: JaxF64, targets: JaxF64 | None = None, log_prefix: str = "4", **kwargs) -> TrainLogs:
+    def train(
+        self,
+        inputs: JaxF64,
+        targets: JaxF64 | None = None,
+        log_prefix: str = "4",
+        projection_layer: Projection | None = None,
+    ) -> TrainLogs:
         """Train the model. Default no-op for models without trainable parameters."""
         return {}
 
@@ -117,7 +122,7 @@ class ClosedLoopGenerativeModel[StateT](ABC):
             final_state, history_outputs = self.forward(initial_state_warmup, history_in)
             last_output = history_outputs[:, -1, :]
 
-        def predict_one(features):
+        def predict_one(features: JaxF64) -> JaxF64:
             if readout is not None:
                 # Readout expects features in correct shape
                 # If features are (batch, feat), readout.predict usually handles it
@@ -134,7 +139,7 @@ class ClosedLoopGenerativeModel[StateT](ABC):
         first_prediction = predict_one(last_output)
         
 
-        def scan_step(carry, _):
+        def scan_step(carry: tuple[StateT, JaxF64, int], _: None) -> tuple[tuple[StateT, JaxF64, int], JaxF64 | tuple[JaxF64, JaxF64]]:
             h_prev, x_raw, step_idx = carry
             
             x_proj = projection_fn(x_raw) if projection_fn else x_raw
@@ -168,3 +173,6 @@ class ClosedLoopGenerativeModel[StateT](ABC):
             if batch_size == 1:
                 return predictions[0]
             return predictions
+
+
+type ClosedLoopModel = ClosedLoopGenerativeModel[JaxF64] | ClosedLoopGenerativeModel[tuple[JaxF64, JaxF64 | None]]

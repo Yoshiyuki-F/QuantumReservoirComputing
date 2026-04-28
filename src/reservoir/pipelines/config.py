@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from reservoir.data import SplitDataset
     from reservoir.readout.base import ReadoutModule
     from reservoir.data.identifiers import Dataset
-    from reservoir.models.generative import ClosedLoopGenerativeModel
+    from reservoir.models.generative import ClosedLoopModel
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class DatasetMetadata:
 
 @dataclass(frozen=True)
 class ModelStack:
-    model: ClosedLoopGenerativeModel
+    model: ClosedLoopModel
     readout: ReadoutModule | None
     topo_meta: TopologyMeta
     metric: str

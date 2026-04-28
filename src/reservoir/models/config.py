@@ -488,7 +488,7 @@ class DistillationConfig(ModelConfig):
     def validate(self, context: str = "") -> DistillationConfig:
         prefix = f"{context}: " if context else ""
         self.teacher.validate(context=f"{prefix}teacher")
-        if any(width < 0 for width in self.student.hidden_layers):
+        if any(width < 0 for width in (self.student.hidden_layers or ())):
             raise ValueError(f"{prefix}student.hidden_layers values must be non negative.")
         return self
 
@@ -527,9 +527,9 @@ class FNNConfig(ModelConfig):
 
     @property
     def label(self) -> str:
-        layers = "-".join(str(w) for w in (self.hidden_layers or ()))
+        layers = "_".join(str(w) for w in (self.hidden_layers or ()))
         w = f"_w{int(self.window_size)}" if self.window_size is not None else ""
-        return f"fnn_{'_'.join(str(w) for w in (self.hidden_layers or ()))}{w}"
+        return f"fnn_{layers}{w}"
 
 
 
@@ -709,5 +709,3 @@ class FNNReadoutConfig(ReadoutConfig):
     def label(self) -> str:
         layers = "x".join(str(w) for w in (self.hidden_layers or ()))
         return f"FNNReadout_{layers}"
-
-

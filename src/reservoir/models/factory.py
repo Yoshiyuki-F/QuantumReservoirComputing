@@ -11,13 +11,13 @@ from reservoir.models.config import ClassicalReservoirConfig, DistillationConfig
 from reservoir.models.distillation.factory import DistillationFactory
 from reservoir.models.reservoir.factory import ReservoirFactory
 from typing import TYPE_CHECKING
-from reservoir.training.presets import TrainingConfig
 
 
 if TYPE_CHECKING:
+    from reservoir.training.presets import TrainingConfig
     from reservoir.core.types import TopologyMeta
     from reservoir.models.presets import PipelineConfig
-    from reservoir.models.generative import ClosedLoopGenerativeModel
+    from reservoir.models.generative import ClosedLoopModel
 
 
 class ModelFactory:
@@ -31,7 +31,7 @@ class ModelFactory:
         output_dim: int | None = None,
         input_shape: tuple[int, ...] | None = None,
         classification: bool = False,
-    ) -> ClosedLoopGenerativeModel:
+    ) -> ClosedLoopModel:
 
         if input_dim is None or input_dim <= 0:
             raise ValueError("ModelFactory.create_model requires a positive input_dim.")
@@ -108,6 +108,9 @@ class ModelFactory:
                 adapter_shape = (batch_size, flattened_dim) if batch_size else (flattened_dim,)
                 structure = "Flatten -> FNN -> Output"
             
+            feature_rows = windowed_samples if windowed_samples is not None else batch_size
+            feature_shape = (feature_rows, output_dim) if feature_rows is not None else (output_dim,)
+
             topo_meta: TopologyMeta = {
                 "type": pipeline_enum.value.upper(),
                 "shapes": {
@@ -115,8 +118,8 @@ class ModelFactory:
                     "projected": input_shape,
                     "adapter": adapter_shape,
                     "internal": tuple(hidden_layers) if hidden_layers else None,
-                    "feature": (windowed_samples or batch_size, output_dim) if (windowed_samples or batch_size) else (output_dim,),
-                    "output": (windowed_samples or batch_size, output_dim) if (windowed_samples or batch_size) else (output_dim,),
+                    "feature": feature_shape,
+                    "output": feature_shape,
                 },
                 "details": {
                     "window_size": window_size,

@@ -123,7 +123,7 @@ def check_file(path: Path) -> list[str]:
 
         # check_file 関数の forループ内に追加
         if _forbidden_defensive_isinstance.search(line):
-            # Unionの解決など、どうしても必要な場合は # noqa 等で回避させる設計にするか、
+            # Unionの解決など、どうしても必要な場合は明示的な抑制コメントで回避させる設計にするか、
             # そもそも設計を見直させる
             violations.append(
                 f"L{i}: ❌ Rule 14: Defensive 'isinstance' against basic types is forbidden. "

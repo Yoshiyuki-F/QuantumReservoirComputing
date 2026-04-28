@@ -3,7 +3,8 @@ Dataset loader registrations and preparation helpers."""
 
 from __future__ import annotations
 
-from typing import TypeVar, TYPE_CHECKING
+from collections.abc import Callable  # noqa: TC003
+from typing import TYPE_CHECKING, TypeVar, cast
 from beartype import beartype
 
 import numpy as np
@@ -19,30 +20,38 @@ from reservoir.data.generators import (
 from reservoir.data.presets import get_dataset_preset
 from reservoir.training.presets import TrainingConfig, get_training_preset
 from reservoir.data.structs import SplitDataset
-
-
-LOADER_REGISTRY: dict[Dataset, Callable] = {}
-
-
 from reservoir.core.types import NpF64
 from reservoir.data.config import (
-        SineWaveConfig,
-        MackeyGlassConfig,
-        LorenzConfig,
-        Lorenz96Config,
-    )
+    BaseDatasetConfig,
+    SineWaveConfig,
+    MackeyGlassConfig,
+    LorenzConfig,
+    Lorenz96Config,
+    MNISTConfig,
+)
 
 if TYPE_CHECKING:
     from reservoir.data.config import ChaosDatasetConfig
-    from reservoir.data.config import (
-        MNISTConfig,
-    )
-    from collections.abc import Callable
-F = TypeVar("F")
+
+
+type LoaderFunc = (
+    Callable[[BaseDatasetConfig], tuple[NpF64, NpF64] | SplitDataset]
+)
+type SpecificLoaderFunc = (
+    Callable[[SineWaveConfig], tuple[NpF64, NpF64]]
+    | Callable[[MNISTConfig], SplitDataset]
+    | Callable[[MackeyGlassConfig], tuple[NpF64, NpF64]]
+    | Callable[[LorenzConfig], tuple[NpF64, NpF64]]
+    | Callable[[Lorenz96Config], tuple[NpF64, NpF64]]
+)
+
+
+LOADER_REGISTRY: dict[Dataset, LoaderFunc] = {}
+F = TypeVar("F", bound=SpecificLoaderFunc)
 
 def register_loader(dataset: Dataset) -> Callable[[F], F]:
     def decorator(fn: F) -> F:
-        LOADER_REGISTRY[dataset] = fn
+        LOADER_REGISTRY[dataset] = cast("LoaderFunc", fn)
         return fn
 
     return decorator
@@ -313,4 +322,3 @@ def load_dataset_with_validation_split(
 
     #TODO why is Val_X has warning??
     return SplitDataset(train_X, train_y, test_X, test_y, val_X, val_y)
-

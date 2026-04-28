@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 from reservoir.core.types import JaxF64, TrainLogs, ConfigDict
 from jaxtyping import jaxtyped
-from typing import Literal, TypedDict, Any
+from typing import TYPE_CHECKING, Literal, TypedDict
 from beartype import beartype
 
 from reservoir.layers.aggregation import AggregationMode
@@ -18,12 +18,16 @@ from reservoir.models.reservoir.base import Reservoir, ReservoirConfig
 from .backend import _ensure_tensorcircuit_initialized
 from .functional import _step_jit, _forward_jit, _get_fused_rotation_matrix
 
+if TYPE_CHECKING:
+    from reservoir.layers.projection import Projection
+
 class _QuantumData(TypedDict, total=False):
     """Typed structure for Quantum serialization — avoids ConfigDict union explosion."""
     n_qubits: int
     n_layers: int
     seed: int
     feedback_scale: float
+    leak_rate: float
     aggregation: str
     measurement_basis: str
     noise_type: str
@@ -33,6 +37,61 @@ class _QuantumData(TypedDict, total=False):
     use_remat: bool
     use_reuploading: bool
     precision: str
+    chunk_size: int
+
+
+def _parse_measurement_basis(value: str) -> Literal["Z", "ZZ", "Z+ZZ"]:
+    if value == "Z":
+        return "Z"
+    if value == "ZZ":
+        return "ZZ"
+    if value == "Z+ZZ":
+        return "Z+ZZ"
+    raise ValueError(f"Unknown measurement_basis: {value}")
+
+
+def _parse_noise_type(value: str) -> Literal["clean", "depolarizing", "damping"]:
+    if value == "clean":
+        return "clean"
+    if value == "depolarizing":
+        return "depolarizing"
+    if value == "damping":
+        return "damping"
+    raise ValueError(f"Unknown noise_type: {value}")
+
+
+def _parse_precision(value: str) -> Literal["complex64", "complex128"]:
+    if value == "complex64":
+        return "complex64"
+    if value == "complex128":
+        return "complex128"
+    raise ValueError(f"Unknown precision: {value}")
+
+
+def _parse_quantum_data(data: ConfigDict) -> _QuantumData:
+    parsed: _QuantumData = {}
+
+    for key in ("n_qubits", "n_layers", "seed", "n_trajectories", "chunk_size"):
+        value = data.get(key)
+        if value is not None:
+            parsed[key] = int(float(str(value)))
+
+    for key in ("feedback_scale", "leak_rate", "noise_prob", "readout_error"):
+        value = data.get(key)
+        if value is not None:
+            parsed[key] = float(str(value))
+
+    for key in ("aggregation", "measurement_basis", "noise_type", "precision"):
+        value = data.get(key)
+        if value is not None:
+            parsed[key] = str(value)
+
+    for key in ("use_remat", "use_reuploading"):
+        value = data.get(key)
+        if value is not None:
+            parsed[key] = bool(value)
+
+    return parsed
 
 class QuantumReservoirConfig(ReservoirConfig):
     n_qubits: int | None
@@ -185,7 +244,7 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
         return jnp.array(matrix_np)
 
     @staticmethod
-    def _broadcast_scalar(val, count):
+    def _broadcast_scalar(val: int, count: int) -> JaxF64:
         return jnp.full((count,), val)
 
     def _prepare_input(self, inputs: JaxF64) -> tuple[JaxF64, bool]:
@@ -298,8 +357,8 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
             
             # Reduce final_state (Optional implementation)
             # Just take the first trajectory's key/state to maintain shape for next steps if needed
-            if final_state[1] is not None:
-                 f_vec, f_keys = final_state
+            f_vec, f_keys = final_state
+            if f_keys is not None:
                  # f_vec: (B*K, N) -> (B, K, N) -> Mean
                  f_vec_mean = f_vec.reshape(original_batch_size, traj_count, -1).mean(axis=1)
                  
@@ -309,7 +368,7 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
                  
                  final_state = (f_vec_mean, f_keys_reduced)
             else:
-                 f_vec_mean = final_state[0].reshape(original_batch_size, traj_count, -1).mean(axis=1)
+                 f_vec_mean = f_vec.reshape(original_batch_size, traj_count, -1).mean(axis=1)
                  final_state = (f_vec_mean, None)
             
         else:
@@ -325,7 +384,6 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
         inputs: JaxF64,
         return_sequences: bool = False,
         split_name: str | None = None,
-        **kwargs: Any
     ) -> JaxF64:
         arr, input_was_2d = self._prepare_input(inputs)
         
@@ -341,7 +399,13 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
 
 
 
-    def train(self, inputs: JaxF64, targets: JaxF64 | None = None, log_prefix: str = "4", **kwargs) -> TrainLogs:
+    def train(
+        self,
+        inputs: JaxF64,
+        targets: JaxF64 | None = None,
+        log_prefix: str = "4",
+        projection_layer: Projection | None = None,
+    ) -> TrainLogs:
         # Reservoir has no trainable parameters; arguments are unused.
         return {}
 
@@ -368,7 +432,7 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
 
     @classmethod
     def from_dict(cls, data: ConfigDict) -> QuantumReservoir:
-        d: _QuantumData = data  # type: ignore[assignment]  # ConfigDict → _QuantumData at boundary
+        d = _parse_quantum_data(data)
         try:
             return cls(
                 n_qubits=int(d["n_qubits"]),
@@ -377,13 +441,13 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
                 feedback_scale=float(d.get("feedback_scale", 0.0)),
                 leak_rate=float(d.get("leak_rate", 1.0)),
                 aggregation_mode=AggregationMode(str(d["aggregation"])),
-                measurement_basis=d.get("measurement_basis", "Z"),  # type: ignore[arg-type]
-                noise_type=d.get("noise_type", "clean"),  # type: ignore[arg-type]
+                measurement_basis=_parse_measurement_basis(d.get("measurement_basis", "Z")),
+                noise_type=_parse_noise_type(d.get("noise_type", "clean")),
                 noise_prob=float(d.get("noise_prob", 0.0)),
                 readout_error=float(d.get("readout_error", 0.0)),
                 n_trajectories=int(d.get("n_trajectories", 0)),
                 use_reuploading=bool(d.get("use_reuploading", False)),
-                precision=d.get("precision", "complex64"),  # type: ignore[arg-type]
+                precision=_parse_precision(d.get("precision", "complex64")),
                 use_remat=bool(d.get("use_remat", False)),
                 chunk_size=int(d.get("chunk_size", 32)),
             )

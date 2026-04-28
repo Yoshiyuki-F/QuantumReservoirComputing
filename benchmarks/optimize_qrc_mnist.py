@@ -27,21 +27,21 @@ from pathlib import Path
 import jax
 jax.config.update("jax_enable_x64", True)
 
-import numpy as np
-import optuna
+import numpy as np  # noqa: E402
+import optuna  # noqa: E402
 
-from reservoir.utils import check_gpu_available
-from reservoir.pipelines import run_pipeline
-from reservoir.pipelines.strategies import DivergenceError
-from reservoir.models.presets import (
+from reservoir.utils import check_gpu_available  # noqa: E402
+from reservoir.pipelines import run_pipeline  # noqa: E402
+from reservoir.pipelines.strategies import DivergenceError  # noqa: E402
+from reservoir.models.presets import (  # noqa: E402
     QUANTUM_RESERVOIR_PRESET,
     DEFAULT_RIDGE_READOUT,
 )
-from reservoir.models.config import (
+from reservoir.models.config import (  # noqa: E402
     BoundedAffinePCAConfig,
     PolyRidgeReadoutConfig,
 )
-from reservoir.data.identifiers import Dataset
+from reservoir.data.identifiers import Dataset  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Readout Map
@@ -144,8 +144,7 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
 
         # === 3. Run Pipeline ===
         try:
-            from typing import Any
-            results: dict[str, Any] = run_pipeline(config, dataset_enum)
+            results = run_pipeline(config, dataset_enum)
 
             # === 4. Extract Metrics ===
             test_results = results.get("test", {})

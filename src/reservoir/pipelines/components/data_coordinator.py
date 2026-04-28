@@ -6,13 +6,14 @@ Implements DataCoordinator to handle data fetching, padding, and alignment,
 freeing PipelineExecutor from low-level data manipulation.
 """
 from beartype import beartype
-from reservoir.core.types import NpF64, to_jax_f64, BatchIterator, DataLoaderProtocol
+from reservoir.core.types import to_jax_f64, BatchIterator, DataLoaderProtocol
+from reservoir.core.types import NpF64
 
 
-from reservoir.pipelines.config import DatasetMetadata, FrontendContext
 from reservoir.utils.data_prep import apply_halo_padding
 from reservoir.utils.reporting import print_feature_stats
-from reservoir.layers.projection import Projection
+from reservoir.layers.projection import Projection  # noqa: TC001
+from reservoir.pipelines.config import DatasetMetadata, FrontendContext  # noqa: TC001
 
 @beartype
 class DataLoader:

@@ -4,11 +4,11 @@ Reporting utilities for post-run analysis: metrics, logging, and file outputs Dr
 from __future__ import annotations
 
 import numpy as np
-from reservoir.core.types import NpF64, ResultDict, TrainLogs, EvalMetrics, FitResultDict, TopologyMeta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from reservoir.models.generative import ClosedLoopGenerativeModel
+    from reservoir.core.types import NpF64, ResultDict, TrainLogs, EvalMetrics, FitResultDict, TestMetrics, TopologyMeta
+    from reservoir.models.generative import ClosedLoopModel
     from reservoir.models.presets import PipelineConfig
     from reservoir.data.config import DatasetPreset
     from reservoir.training.config import TrainingConfig
@@ -245,7 +245,8 @@ def plot_classification_report(
         weight_norms = train_res.get("weight_norms", {})
         lambda_norm = float(weight_norms.get(selected_lambda, 0.0))
 
-    metrics_test = results.get("test", {}) if results is not None else {}
+    empty_test_metrics: TestMetrics = {}
+    metrics_test = results.get("test", empty_test_metrics) if results is not None else empty_test_metrics
     metrics_payload: dict[str, str] = {str(k): str(v) for k, v in metrics_test.items()}
     if train_labels_np is None or test_labels_np is None or train_pred_np is None or test_pred_np is None:
         print("    [Reporter] Missing data for classification plot, skipping.")
@@ -273,7 +274,9 @@ def get_preprocess_label(topo_meta: TopologyMeta, config: PipelineConfig | None)
         return config.preprocess.label
 
     # Fallback for legacy topo_meta
-    details: dict = topo_meta.get("details", {})
+    details = topo_meta.get("details")
+    if details is None:
+        return "raw"
     raw_label = str(details.get("preprocess", ""))
     return raw_label if raw_label else "raw"
 
@@ -369,7 +372,7 @@ def generate_report(
     classification: bool = False,
     # preprocessors removed
     dataset_preset: DatasetPreset | None = None,  # DatasetPreset for dt/lyapunov_time_unit
-    model_obj: ClosedLoopGenerativeModel | None = None, # New Argument
+    model_obj: ClosedLoopModel | None = None, # New Argument
 ) -> None:
     """
     Coordinator for generating all report elements (plots, logs).
@@ -379,8 +382,6 @@ def generate_report(
     _plot_distillation_section(results, topo_meta, training_obj, model_type_str, readout, config, dataset_meta)
 
     # 2. Main Task Plots (Classification vs Regression using MSE)
-    metric = "accuracy" if classification else "mse"
-    
     if classification:
         _plot_classification_section(
             results, config, topo_meta, training_obj, dataset_meta, model_type_str, readout,
@@ -548,11 +549,13 @@ def plot_ridgecv_intermediates(
             # Unscale for plotting if possible
             scaler = frontend_ctx.preprocessor
             def _inv(arr: NpF64) -> NpF64:
-                if scaler is None: return arr
+                if scaler is None:
+                    return arr
                 try:
                     v = arr.reshape(-1, 1) if arr.ndim == 1 else arr
                     return scaler.inverse_transform(v).reshape(arr.shape)
-                except: return arr
+                except (ValueError, TypeError):
+                    return arr
 
             val_y_raw = _inv(val_y)
             val_p_raw = _inv(val_pred_np)
@@ -565,11 +568,11 @@ def plot_ridgecv_intermediates(
                 filename=val_plot_filename,
                 title=f"Step 7: Val Open-Loop ({metric_name}: {best_score:.2e}, ||w||: {best_norm:.2e})"
             )
-    except Exception as e:
+    except (ImportError, RuntimeError, ValueError, OSError, TypeError, AttributeError) as e:
         print(f"    [Warning] Intermediate plotting failed in reporting.py: {e}")
 
 
-def _plot_quantum_section(results: ResultDict, topo_meta: TopologyMeta, training_obj: TrainingConfig, dataset_meta: DatasetMetadata, model_type_str: str, readout: ReadoutModule | None, config: PipelineConfig, model_obj: ClosedLoopGenerativeModel | None) -> None:
+def _plot_quantum_section(results: ResultDict, topo_meta: TopologyMeta, training_obj: TrainingConfig, dataset_meta: DatasetMetadata, model_type_str: str, readout: ReadoutModule | None, config: PipelineConfig, model_obj: ClosedLoopModel | None) -> None:
     quantum_trace = results.get("quantum_trace")
     if quantum_trace is not None:
         try:

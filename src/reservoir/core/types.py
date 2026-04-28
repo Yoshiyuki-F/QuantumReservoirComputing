@@ -35,6 +35,9 @@ JaxKey = UInt32[Array, "..."]  # JAX PRNG key (uint32)
 
 BatchData = tuple[JaxF64, JaxF64 | None]
 BatchIterator = Iterator[BatchData]
+ModelState = JaxF64 | tuple[JaxF64, JaxF64 | None]
+type FlaxParamTree = JaxF64 | dict[str, FlaxParamTree]
+ArrayResult = JaxF64 | NpF64
 
 @runtime_checkable
 class DataLoaderProtocol(Protocol):
@@ -135,21 +138,21 @@ class FitResultMetrics(TypedDict, total=False):
     test: EvalMetrics
 
 class FitResultDict(TypedDict, total=False):
-    train_pred: JaxF64 | None
-    val_pred: JaxF64 | None
-    test_pred: JaxF64 | None
+    train_pred: ArrayResult | None
+    val_pred: ArrayResult | None
+    test_pred: ArrayResult | None
     metrics: FitResultMetrics
     best_lambda: float | None
     best_score: float | None
     search_history: dict[float, float]
     weight_norms: dict[float, float]
     residuals_history: dict[float, NpF64] | None
-    closed_loop_pred: JaxF64 | None
-    closed_loop_history: JaxF64 | None
-    closed_loop_truth: JaxF64 | None
+    closed_loop_pred: ArrayResult | None
+    closed_loop_history: ArrayResult | None
+    closed_loop_truth: ArrayResult | None
     chaos_results: dict[str, float] | None
-    outputs: dict[str, JaxF64 | None]
-    aligned_test_y: JaxF64 | None
+    outputs: dict[str, ArrayResult | None]
+    aligned_test_y: ArrayResult | None
 
 class ResultDict(TypedDict, total=False):
     fit_result: FitResultDict
@@ -159,9 +162,9 @@ class ResultDict(TypedDict, total=False):
     test: TestMetrics
     validation: EvalMetrics
     outputs: dict[str, NpF64 | None]
-    readout: "reservoir.readout.base.ReadoutModule | None"
-    preprocessor: "reservoir.layers.preprocessing.Preprocessor | None"
-    scaler: "reservoir.layers.preprocessing.Preprocessor | None"
+    readout: reservoir.readout.base.ReadoutModule | None
+    preprocessor: reservoir.layers.preprocessing.Preprocessor | None
+    scaler: reservoir.layers.preprocessing.Preprocessor | None
     training_logs: TrainLogs
     meta: dict[str, float | str]
     is_closed_loop: bool

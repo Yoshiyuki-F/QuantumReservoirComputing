@@ -17,20 +17,20 @@ from pathlib import Path
 import jax
 jax.config.update("jax_enable_x64", True)
 
-import numpy as np
-import optuna
+import numpy as np  # noqa: E402
+import optuna  # noqa: E402
 
-from reservoir.utils import check_gpu_available
-from reservoir.pipelines import run_pipeline
-from reservoir.pipelines.strategies import DivergenceError
-from reservoir.models.presets import (
+from reservoir.utils import check_gpu_available  # noqa: E402
+from reservoir.pipelines import run_pipeline  # noqa: E402
+from reservoir.pipelines.strategies import DivergenceError  # noqa: E402
+from reservoir.models.presets import (  # noqa: E402
     TIME_QUANTUM_RESERVOIR_PRESET,
     DEFAULT_RIDGE_READOUT,
 )
-from reservoir.models.config import (
+from reservoir.models.config import (  # noqa: E402
     PolyRidgeReadoutConfig,
 )
-from reservoir.data.identifiers import Dataset
+from reservoir.data.identifiers import Dataset  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
         bound = np.pi  # Fixed to pi to maintain bijective mapping
 
         # ======================== Reservoir ==================================
-        # n_layers = trial.suggest_categorical("n_layers", [1, 2, 3,4,5,6,7])
+        n_layers = trial.suggest_categorical("n_layers", [1, 2, 3, 4, 5, 6, 7])
 
         feedback_scale = trial.suggest_float("feedback_scale", 0, np.pi)
         leak_rate = trial.suggest_float("leak_rate", 0, 1)
@@ -265,7 +265,7 @@ def main():
     try:
         check_gpu_available()
     except RuntimeError as exc:
-        raise ValueError(f"Warning: GPU check failed ({exc}). Continuing...")
+        raise ValueError(f"Warning: GPU check failed ({exc}). Continuing...") from exc
 
     # --- Dataset ---
     dataset_name = args.dataset

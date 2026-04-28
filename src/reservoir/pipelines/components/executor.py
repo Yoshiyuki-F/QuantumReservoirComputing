@@ -1,17 +1,20 @@
 # /home/yoshi/PycharmProjects/Reservoir/src/reservoir/pipelines/components/executor.py
 
 import jax.numpy as jnp
-from reservoir.core.types import NpF64, to_jax_f64, to_np_f64
+from typing import cast, TYPE_CHECKING
+from reservoir.core.types import JaxF64, ModelState, NpF64, to_jax_f64, to_np_f64
 
-from reservoir.models.generative import ClosedLoopGenerativeModel
-from reservoir.models.presets import PipelineConfig
-from reservoir.pipelines.config import DatasetMetadata, FrontendContext, ModelStack
 from reservoir.pipelines.evaluation import Evaluator
 from reservoir.pipelines.strategies import ReadoutStrategyFactory
-from reservoir.pipelines.components.data_coordinator import DataCoordinator
 from reservoir.utils.reporting import print_feature_stats
 from reservoir.models.reservoir.base import Reservoir
 from reservoir.core.types import ResultDict
+
+if TYPE_CHECKING:
+    from reservoir.pipelines.config import DatasetMetadata, FrontendContext, ModelStack
+    from reservoir.models.generative import ClosedLoopGenerativeModel, ClosedLoopModel
+    from reservoir.pipelines.components.data_coordinator import DataCoordinator
+    from reservoir.models.presets import PipelineConfig
 
 
 class PipelineExecutor:
@@ -52,6 +55,8 @@ class PipelineExecutor:
         # Delegate extraction (Model does work, Coordinator provides input)
         print("\n[executor.py] === Step 5.5: Extract Features (Output) ===")
         train_Z, val_Z, test_Z, val_final_info = self._extract_all_features(self.stack.model)
+        if train_Z is None:
+            raise ValueError("Training feature extraction returned None.")
 
         # Step 6.5: Target Alignment (Delegate to Coordinator)
         print("\n=== Step 6.5: Target Alignment (Auto-Align) ===")
@@ -97,7 +102,7 @@ class PipelineExecutor:
              try:
                  if fit_result.get("closed_loop_history") is not None:
                      # Use history from closed-loop generation (no re-computation needed)
-                     quantum_trace = to_np_f64(fit_result["closed_loop_history"])
+                     quantum_trace = to_np_f64(cast("JaxF64", fit_result["closed_loop_history"]))
                      print(f"    [Executor] Using captured closed-loop history: {quantum_trace.shape}")
                  else:
                      test_data = self.frontend_ctx.processed_split.test_X
@@ -125,15 +130,14 @@ class PipelineExecutor:
              except (ValueError, RuntimeError, TypeError) as e:
                  print(f"[executor.py] Failed to capture quantum trace: {e}")
 
-        from typing import cast
         return cast("ResultDict", {
             "fit_result": fit_result,
             "train_logs": train_logs,
             "quantum_trace": quantum_trace,
         })
 
-    def _extract_all_features(self, model: ClosedLoopGenerativeModel) \
-            -> tuple[NpF64 | None, NpF64 | None, NpF64 | None, tuple | None]:
+    def _extract_all_features(self, model: ClosedLoopModel) \
+            -> tuple[NpF64 | None, NpF64 | None, NpF64 | None, tuple[ModelState | None, JaxF64 | None] | None]:
         """
         Orchestrate feature extraction using DataLoader.
         """
@@ -144,7 +148,11 @@ class PipelineExecutor:
         
         is_stateful = isinstance(model, Reservoir)
         
-        def process_split(split_name: str, initial_state: object = None, return_state: bool = False):
+        def process_split(
+            split_name: str,
+            initial_state: ModelState | None = None,
+            return_state: bool = False,
+        ) -> tuple[NpF64 | None, ModelState | None, JaxF64 | None]:
             loader = self.coordinator.get_eval_dataloader(split_name, batch_size, window_size, projection)
             if loader is None or loader.num_samples == 0:
                 return None, None, None
@@ -153,8 +161,9 @@ class PipelineExecutor:
                 # Stateful recurrent generation requires entire sequence at once
                 for b_x, _ in loader:
                     inputs_jax = b_x[None, :, :]
-                    state = initial_state if initial_state is not None else model.initialize_state(1)
-                    final_state, outputs_jax = model.forward(state, inputs_jax)
+                    model_for_state = cast("ClosedLoopGenerativeModel[ModelState]", model)
+                    state = initial_state if initial_state is not None else model_for_state.initialize_state(1)
+                    final_state, outputs_jax = model_for_state.forward(state, inputs_jax)
                     outputs_np = to_np_f64(outputs_jax[0])
                     last_output = outputs_jax[:, -1, :] 
                     print_feature_stats(outputs_np, "executor.py", f"5.5:Z:{split_name}")
@@ -163,7 +172,7 @@ class PipelineExecutor:
             # Standard Path using generator
             import numpy as np
             from tqdm.auto import tqdm
-            all_outputs = []
+            all_outputs: list[NpF64] = []
             
             pbar = tqdm(total=loader.num_samples, desc=f"Extracting {split_name}", unit="samples")
             for b_x, _ in loader:
@@ -177,7 +186,7 @@ class PipelineExecutor:
                 print_feature_stats(outputs_np, "executor.py", f"5.5:Z:{split_name}")
             return outputs_np, None, None
 
-        current_state = None
+        current_state: ModelState | None = None
         warmup_X = None
         if is_stateful:
             warmup_X, current_state, _ = process_split("warmup", initial_state=current_state, return_state=is_stateful)

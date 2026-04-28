@@ -3,16 +3,22 @@ Flax-based BaseModel adapter optimized with jax.lax.scan and tqdm logging."""
 
 
 from beartype import beartype
+from typing import cast, TYPE_CHECKING
 import jax
 import jax.numpy as jnp
-from reservoir.core.types import JaxF64, JaxKey, TrainLogs, EvalMetrics, ConfigDict, TopologyMeta
+from reservoir.core.types import JaxF64, JaxKey, TrainLogs, EvalMetrics, ConfigDict, TopologyMeta, FlaxParamTree
 import optax
-import flax.linen as nn
+import flax.linen as nn  # noqa: TC002
 from flax.training import train_state
 from tqdm import tqdm  # 進行状況表示用
 from abc import ABC, abstractmethod
+from reservoir.layers.projection import Projection  # noqa: TC001
+from reservoir.layers.adapters import Adapter  # noqa: TC001
+from reservoir.training.presets import TrainingConfig  # noqa: TC001
 
-from reservoir.training.presets import TrainingConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
 
 
 @beartype
@@ -21,7 +27,13 @@ class BaseModel(ABC):
     
     topology_meta: TopologyMeta = {}
 
-    def train(self, inputs: JaxF64, targets: JaxF64 | None = None, log_prefix: str = "4", **kwargs) -> TrainLogs:
+    def train(
+        self,
+        inputs: JaxF64,
+        targets: JaxF64 | None = None,
+        log_prefix: str = "4",
+        projection_layer: Projection | None = None,
+    ) -> TrainLogs:
         """
         Execute internal pre-training phase (e.g., Distillation, Backprop). Returns metrics/logs.
         Defaults to a no-op so models without a pre-training stage can conform to the interface.
@@ -110,8 +122,8 @@ class BaseFlaxModel(BaseModel, ABC):
         )
 
     @staticmethod
-    def _train_step(state: train_state.TrainState, batch_x: JaxF64, batch_y: JaxF64, classification: bool):
-        def loss_fn(params):
+    def _train_step(state: train_state.TrainState, batch_x: JaxF64, batch_y: JaxF64, classification: bool) -> tuple[train_state.TrainState, JaxF64]:
+        def loss_fn(params: FlaxParamTree) -> JaxF64:
             logits = state.apply_fn({"params": params}, batch_x)
             if classification:
                 labels = batch_y
@@ -129,16 +141,20 @@ class BaseFlaxModel(BaseModel, ABC):
     # ------------------------------------------------------------------ #
     # BaseModel API                                                      #
     # ------------------------------------------------------------------ #
-    def train(self, inputs: JaxF64, targets: JaxF64 | None = None, log_prefix: str = "4", **kwargs) -> TrainLogs:
+    def train(
+        self,
+        inputs: JaxF64,
+        targets: JaxF64 | None = None,
+        log_prefix: str = "4",
+        projection_layer: Projection | None = None,
+        adapter: Adapter | None = None,
+    ) -> TrainLogs:
         if targets is None:
             raise ValueError("BaseFlaxModel.train requires 'targets'.")
 
         import time
 
         print(f"\n[nn.base.py] === Training {self.__class__.__name__} ===")
-
-        projection_layer = kwargs.get("projection_layer")
-        adapter = kwargs.get("adapter")
 
         # ==============================================================
         # Phase 1: Pre-compute adapter if safe (no projection → no OOM)
@@ -185,7 +201,10 @@ class BaseFlaxModel(BaseModel, ABC):
             if apply_proj_in_scan:
                 sample = projection_layer(sample)
             if apply_adapter_in_scan:
-                sample = adapter(sample, log_label="4:Flatten")
+                adapter_for_scan = adapter
+                if adapter_for_scan is None:
+                    raise RuntimeError("Adapter must be configured when apply_adapter_in_scan is enabled.")
+                sample = adapter_for_scan(sample, log_label="4:Flatten")
             self._state = self._init_train_state(init_key, sample, num_train_steps)
 
         # Reshape into batches
@@ -204,17 +223,20 @@ class BaseFlaxModel(BaseModel, ABC):
         num_chunks = self.epochs // CHUNK_SIZE
         remainder = self.epochs % CHUNK_SIZE
 
-        def _make_train_fn(length):
+        def _make_train_fn(length: int) -> Callable[[train_state.TrainState, JaxF64, JaxF64], tuple[train_state.TrainState, JaxF64]]:
             @jax.jit
-            def train_fn(state, data_x, data_y):
-                def epoch_body(st, _):
-                    def batch_body(s, batch):
+            def train_fn(state: train_state.TrainState, data_x: JaxF64, data_y: JaxF64) -> tuple[train_state.TrainState, JaxF64]:
+                def epoch_body(st: train_state.TrainState, _: None) -> tuple[train_state.TrainState, JaxF64]:
+                    def batch_body(s: train_state.TrainState, batch: tuple[JaxF64, JaxF64]) -> tuple[train_state.TrainState, JaxF64]:
                         bx, by = batch
                         if apply_proj_in_scan:
                             bx = projection_layer(bx)
                         if apply_adapter_in_scan:
-                            bx = adapter(bx)
-                            by = adapter.align_targets(by)
+                            adapter_for_scan = adapter
+                            if adapter_for_scan is None:
+                                raise RuntimeError("Adapter must be configured when apply_adapter_in_scan is enabled.")
+                            bx = adapter_for_scan(bx)
+                            by = adapter_for_scan.align_targets(by)
                         new_s, loss = BaseFlaxModel._train_step(s, bx, by, classification)
                         return new_s, loss
                     s, losses = jax.lax.scan(batch_body, st, (data_x, data_y))
@@ -258,8 +280,10 @@ class BaseFlaxModel(BaseModel, ABC):
         if self._state is None:
             raise RuntimeError("Model not trained")
         @jax.jit
-        def _predict_fn(params, inputs):
-            return self._model_def.apply({"params": params}, inputs)
+        def _predict_fn(params: FlaxParamTree, inputs: JaxF64) -> JaxF64:
+            params_mapping = cast("Mapping[str, FlaxParamTree]", params)
+            variables = cast("Mapping[str, Mapping[str, FlaxParamTree]]", {"params": params_mapping})
+            return cast("JaxF64", self._model_def.apply(variables, inputs))
 
         return _predict_fn(self._state.params, X)
 

@@ -296,7 +296,7 @@ def main():
     try:
         check_gpu_available()
     except RuntimeError as exc:
-        raise ValueError(f"Warning: GPU check failed ({exc}). Continuing...")
+        raise ValueError(f"Warning: GPU check failed ({exc}). Continuing...") from exc
 
     # --- Dataset ---
     dataset_name = args.dataset

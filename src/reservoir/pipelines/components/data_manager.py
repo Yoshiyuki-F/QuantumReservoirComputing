@@ -1,14 +1,11 @@
 from dataclasses import replace
-from collections.abc import Callable
 from reservoir.training.presets import get_training_preset, TrainingConfig
 from reservoir.utils.reporting import print_feature_stats
 
-from reservoir.data.identifiers import Dataset
 from reservoir.core.types import to_jax_f64
 from reservoir.pipelines.config import FrontendContext, DatasetMetadata
 from reservoir.data.loaders import load_dataset_with_validation_split
 from reservoir.data.presets import DATASET_REGISTRY
-from reservoir.data.structs import SplitDataset
 from reservoir.layers.preprocessing import create_preprocessor, register_preprocessors
 from reservoir.layers.projection import (
     create_projection,
@@ -20,6 +17,11 @@ from reservoir.models.config import (
     BoundedAffinePCAConfig,
     RawConfig, StandardScalerConfig, MinMaxScalerConfig, AffineScalerConfig, BoundedAffineScalerConfig,
 )
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from reservoir.data.structs import SplitDataset
+    from reservoir.data.identifiers import Dataset
 
 # Register projection configs once at module level #TODO there is a interface for config
 register_projections(CenterCropProjectionConfig, RandomProjectionConfig, ResizeProjectionConfig, PolynomialProjectionConfig, PCAProjectionConfig, BoundedAffinePCAConfigClass=BoundedAffinePCAConfig)
@@ -163,50 +165,6 @@ class PipelineDataManager:
             input_shape_for_meta=projected_shape if projected_shape else preprocessed_shape,
             input_dim_for_factory=input_dim_for_factory,
             projection_layer=projection_layer,
-        )
-
-    def apply_adapter(self, frontend_ctx: FrontendContext, adapter: Callable) -> FrontendContext:
-        """
-        Step 4: Apply adapter (e.g., TimeDelayEmbedding) to all splits.
-        This is called by the model builder after creating the model with adapter.
-        """
-        print("[datamanager.py] === Step 4: Adapter ===")
-        
-        if adapter is None or not callable(adapter):
-            return frontend_ctx
-        
-        processed = frontend_ctx.processed_split
-        window_size = getattr(adapter, 'window_size', None)
-        adapter_name = f"TimeDelayEmbedding(k={window_size})" if window_size else "Adapter"
-        
-        # Apply adapter to X (all splits)
-        adapted_train_X = adapter(processed.train_X, log_label=f"4:{adapter_name}:X:train")
-        adapted_val_X = adapter(processed.val_X, log_label=f"4:{adapter_name}:X:val") if processed.val_X is not None else None
-        adapted_test_X = adapter(processed.test_X, log_label=f"4:{adapter_name}:X:test") if processed.test_X is not None else None
-        
-        # Align y (all splits) to match adapted X
-        aligned_train_y = adapter.align_targets(processed.train_y, log_label=f"4:{adapter_name}:y:train") if processed.train_y is not None else None
-        aligned_val_y = adapter.align_targets(processed.val_y, log_label=f"4:{adapter_name}:y:val") if processed.val_y is not None else None
-        aligned_test_y = adapter.align_targets(processed.test_y, log_label=f"4:{adapter_name}:y:test") if processed.test_y is not None else None
-        
-        # Create new processed split with adapted data
-        adapted_split = SplitDataset(
-            train_X=adapted_train_X,
-            train_y=aligned_train_y,
-            val_X=adapted_val_X,
-            val_y=aligned_val_y,
-            test_X=adapted_test_X,
-            test_y=aligned_test_y,
-        )
-        
-        # Update input dimension for factory (now windowed)
-        new_input_dim = int(adapted_train_X.shape[-1]) if adapted_train_X.ndim >= 2 else frontend_ctx.input_dim_for_factory
-        
-        from dataclasses import replace as dc_replace
-        return dc_replace(
-            frontend_ctx,
-            processed_split=adapted_split,
-            input_dim_for_factory=new_input_dim,
         )
 
     @staticmethod

@@ -1,11 +1,14 @@
 """/home/yoshi/PycharmProjects/Reservoir/src/reservoir/pipelines/components/reporter.py"""
 import time
-from typing import cast
+from typing import cast, TYPE_CHECKING
 
-from reservoir.models.presets import PipelineConfig
-from reservoir.pipelines.config import DatasetMetadata, FrontendContext, ModelStack
 from reservoir.utils.reporting import generate_report
-from reservoir.core.types import ResultDict, FitResultDict, FitResultMetrics, TrainMetrics, TestMetrics, EvalMetrics, to_np_f64, NpF64
+from reservoir.core.types import ArrayResult, ResultDict, FitResultDict, FitResultMetrics, TrainMetrics, TestMetrics, EvalMetrics, to_np_f64, NpF64
+
+if TYPE_CHECKING:
+    from reservoir.core.types import JaxF64
+    from reservoir.pipelines.config import DatasetMetadata, FrontendContext, ModelStack
+    from reservoir.models.presets import PipelineConfig
 
 
 class ResultReporter:
@@ -35,12 +38,12 @@ class ResultReporter:
         # Use aligned_test_y from fit_result if available (for FNN windowed mode)
         aligned_test_y = fit_result.get("aligned_test_y", test_y)
 
-        def _safe_to_np(val):
+        def _safe_to_np(val: ArrayResult | None) -> NpF64 | None:
             if val is None:
                 return None
             if hasattr(val, "block_until_ready") or hasattr(val, "device_buffer"):
-                return to_np_f64(val)
-            return val
+                return to_np_f64(cast("JaxF64", val))
+            return cast("NpF64", val)
 
         if fit_result["closed_loop_pred"] is not None:
             # Predictions from strategies might be JaxF64, convert to NpF64 for reporting
@@ -96,11 +99,11 @@ class ResultReporter:
         results["validation"] = cast("EvalMetrics", {metric_name: val_score, **val_metrics})
 
         # Ensure all predictions and outputs are moved to Host Domain (NpF64)
-        def _to_np_recursive(val):
-            # Trust the type system - only check for JAX arrays to convert them
-            if hasattr(val, "block_until_ready") or hasattr(val, "device_buffer"):
-                return to_np_f64(val)
-            return val
+        def _to_np_recursive(val: dict[str, ArrayResult | None]) -> dict[str, NpF64 | None]:
+            converted: dict[str, NpF64 | None] = {}
+            for key, item in val.items():
+                converted[key] = _safe_to_np(item)
+            return converted
 
         outputs_raw = dict(fit_result.get("outputs", {})) # strategy might have returned them
         if not outputs_raw:
