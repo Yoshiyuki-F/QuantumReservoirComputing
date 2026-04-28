@@ -50,6 +50,7 @@ dev = [
     "optuna",
     "optuna-dashboard",
     "ipykernel",
+    "types-tqdm",
 ]
 
 

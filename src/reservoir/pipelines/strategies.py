@@ -497,7 +497,7 @@ class EndToEndStrategy(ReadoutStrategy):
              except (ValueError, RuntimeError) as e:
                 print(f"[Warning] FNN Closed-loop generation failed: {e}")
         
-        return cast("FitResultDict", result)
+        return result
 
 
 

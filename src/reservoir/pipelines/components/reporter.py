@@ -114,7 +114,7 @@ class ResultReporter:
                  "val_pred": fit_result.get("val_pred"),
              }
 
-        results["outputs"] = cast("dict[str, NpF64 | None]", _to_np_recursive(outputs_raw))
+        results["outputs"] = _to_np_recursive(outputs_raw)
 
         results["readout"] = self.stack.readout
         results["preprocessor"] = self.frontend_ctx.preprocessor
