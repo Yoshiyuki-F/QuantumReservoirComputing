@@ -1,58 +1,124 @@
-Revised Architecture Blueprint (V2.1)
-1-6 Process Flow (Tensor Flow Style)
-データの流れと各ステップの役割定義です。
+# Reservoir Package Architecture
 
-STEP
-1. Input Data - [Batch, Time, Features]
-Examples: MNIST [28x28], Audio, Text
+This package implements a config-driven experiment pipeline for reservoir
+computing research.
 
-2. Preprocessing - [Batch, Time, Features] -> [Batch, Time, Features]
-Role: Data scaling, polynomial features (Stateless or independent of model internal structure).
-Examples: Raw, StandardScaler, DesignMatrix
+## High-level flow
 
-3. Input Projection - [Batch, Time, Features] -> [Batch, Time, Hidden]
-Role: Mapping input space to high-dimensional hidden space (Random or Learned).
-Examples: Random Projection (W_in)
-Note: FNN Student also uses this to match Teacher's input projection logic.
+```text
+run_pipeline(config, dataset, training_config)
+  -> PipelineDataManager.prepare()
+  -> PipelineModelBuilder.build()
+  -> PipelineExecutor.run()
+  -> ResultReporter.compile_and_save()
+```
 
-4. Adapter: Flatten is used here if Model requires 2D input [Batch, Time*Hidden] (only at FNN).
+The pipeline stages correspond to the experiment flow:
 
-5. Model (Engine) - [Batch, Time, Hidden] -> [Batch, Time, Hidden] (Reservoir) OR [Batch, Hidden] (FNN)
-Role: Stateful dynamics or Deep Non-linear mapping.
-Examples: Classical Reservoir, Quantum Reservoir, FNN (Student)
+1. Input data
+2. Preprocessing
+3. Projection
+4. Model construction
+5. Model execution and feature extraction
+6. Aggregation/readout fitting
+7. Evaluation and reporting
 
-6. Aggregation - [Batch, Time, Hidden] -> [Batch, Feature] (only at Reservoir).
-Role: Temporal reduction to fixed feature vector. 
-Examples: Last state, Mean, Concat
+## Main entry point
 
-7. Readout - [Batch, Feature] -> [Batch, Output]
-Role: Final decoding/classification.
-Examples: Ridge Regression, Softmax
-WHERE TO FIND THEM (Location Mapping)
+```text
+pipelines/run.py
+```
 
-Factory (/home/yoshi/PycharmProjects/Reservoir/src/reservoir/models/factory.py) should just include 4-5-6
-where should /home/yoshi/PycharmProjects/Reservoir/src/reservoir/pipelines/generic_runner.py do then?
+`run_pipeline()` is intentionally orchestration-only. It should not contain
+low-level math, training loops, plotting logic, or reporting details. Those are
+delegated to pipeline components.
 
-ファイル配置と責務のマッピングです。
-data/ (Input Data) 1
-layers/preprocessing.py (Preprocessing) 2
-layers/projection.py (Input Projection) 3
-layers/adapters.py (Structural Glues: Flatten, Reshape) 4
-models/ (Model Engine & Assemblers) 5
-    reservoir/, nn/, distillation/
-layers/aggregation.py (Aggregation) 6
-readout/ridge.py (Readout) 7
+## Components
 
+```text
+pipelines/components/data_manager.py
+```
 
+Owns data loading, splitting, preprocessing, projection setup, metadata, and
+frontend context preparation.
 
-models/factory.py (Manufacturer)
-責務: 4-6 (Engine Stack) の製造。
-特徴: 状態を持たない。作って渡すだけ。
+```text
+pipelines/components/model_builder.py
+```
 
-pipelines/generic_runner.py (Driver)
-責務: 1-7 の実行（ChatGPTの言う「実験ロジックの正本」）。
-特徴: 何のモデルか（FNNかReservoirか）を知らない。「学習して、特徴とって、Readoutする」という抽象的な手順だけを知っている。
+Builds the model/readout stack from config by calling the model and readout
+factories.
 
-pipelines/run.py (Manager/Frontend)
-責務: 1-3 (Frontend) の準備 と、ドライバーへの指示。
-特徴: 具体的なコンフィグ (PipelineConfig) を解釈し、データを用意し、Factoryに製造を依頼し、Runnerに鍵を渡す。
+```text
+pipelines/components/executor.py
+```
+
+Runs training, feature extraction, strategy selection, and readout fitting.
+
+```text
+pipelines/components/reporter.py
+```
+
+Converts execution results into final metrics, logs, outputs, and report files.
+
+## Factories
+
+```text
+models/factory.py
+readout/factory.py
+```
+
+Factories are construction boundaries. They translate typed config objects into
+concrete model and readout instances. They should not own the full experiment
+flow.
+
+## Config surface
+
+```text
+models/config.py
+models/presets.py
+```
+
+`PipelineConfig` connects preprocessing, projection, model, and readout config.
+`presets.py` maps dataset/task type to concrete experiment presets such as
+classical reservoir, quantum reservoir, FNN, passthrough, and distillation.
+
+## Strategy layer
+
+```text
+pipelines/strategies.py
+```
+
+Strategies own task-specific execution behavior, including classification,
+open-loop regression, closed-loop generation, ridge search, and chaos metrics.
+
+## Numerical and array boundaries
+
+```text
+core/types.py
+utils/batched_compute.py
+utils/gpu_utils.py
+```
+
+- `NpF64` is the host/NumPy domain.
+- `JaxF64` is the JAX/device domain.
+- `batched_compute()` owns batched host/device conversion for large feature
+  computations.
+- `gpu_utils.py` is the JAX x64 gatekeeper.
+
+Internal code should keep array domains explicit and avoid ad-hoc NumPy/JAX
+conversion.
+
+## Quantum reservoir boundary
+
+```text
+models/reservoir/quantum/model.py
+models/reservoir/quantum/functional.py
+```
+
+`model.py` exposes `QuantumReservoir` as a normal pipeline model. It adapts
+pipeline inputs, feedback settings, measurement settings, and state handling into
+the lower-level quantum execution functions.
+
+`functional.py` contains the JIT quantum circuit execution logic, including
+Z/ZZ measurements, feedback, reuploading, and noise handling.

@@ -918,14 +918,14 @@ class ClosedLoopRegressionStrategy(ReadoutStrategy):
             print(f"    [Warning] Closed-loop prediction diverged! Pred STD={pred_std:.2f} > {threshold}x Truth STD={truth_std:.2f} (or collapsed)")
             # raise DivergenceError(
             #     f"Closed-loop prediction diverged! Pred STD={pred_std:.2f} > {threshold}x Truth STD={truth_std:.2f} (or collapsed)",
-            #     stats=stats_dict,
+            #     stats=stats_dict
             # )
 
         if pred_max > threshold + truth_max or truth_max > threshold + pred_max:
             print(f"    [Warning] Closed-loop prediction diverged! Pred Max={pred_max:.2f} > {threshold}x Truth Max={truth_max:.2f} (or collapsed)")
             # raise DivergenceError(
             #     f"Closed-loop prediction diverged! Pred Max={pred_max:.2f} > {threshold}x Truth Max={truth_max:.2f} (or collapsed)",
-            #     stats=stats_dict,
+            #     stats=stats_dict
             # )
 
         # Calculate global_start based on dimensions
