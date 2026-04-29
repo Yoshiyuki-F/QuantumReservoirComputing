@@ -39,6 +39,10 @@ class PreprocessingConfig(BaseConfig):
     def to_dict(self) -> ConfigDict:
         return {}
 
+    @property
+    def label(self) -> str:
+        return self.__class__.__name__
+
 
 class ProjectionConfig(BaseConfig):
     """Base class for Step 3 projection configurations."""
@@ -65,6 +69,39 @@ class ReadoutConfig(BaseConfig):
         
     def to_dict(self) -> ConfigDict:
         return {}
+
+    @property
+    def label(self) -> str:
+        return self.__class__.__name__
+
+
+def _validate_bounded_affine_params(
+    scale: float,
+    relative_shift: float,
+    bound: float,
+    prefix: str,
+) -> None:
+    scale_val = scale
+    relative_shift_val = relative_shift
+    bound_val = bound
+
+    if not (0.0 < scale_val <= 1.0):
+        raise ValueError(f"{prefix}scale must be in (0, 1].")
+    if not (-1.0 <= relative_shift_val <= 1.0):
+        raise ValueError(f"{prefix}relative_shift must be in [-1, 1].")
+    if bound_val <= 0.0:
+        raise ValueError(f"{prefix}bound must be > 0.")
+
+
+def _bounded_affine_bounds(scale: float, relative_shift: float, bound: float) -> tuple[float, float]:
+    scale_val = scale
+    relative_shift_val = relative_shift
+    bound_val = bound
+
+    shift_val = relative_shift_val * bound_val * (1.0 - scale_val)
+    lower = -scale_val * bound_val + shift_val
+    upper = scale_val * bound_val + shift_val
+    return lower, upper
 
 
 
@@ -242,12 +279,7 @@ class BoundedAffineScalerConfig(PreprocessingConfig):
 
     def validate(self, context: str = "bounded_affine_scaler") -> BoundedAffineScalerConfig:
         prefix = f"{context}: "
-        if not (0.0 < float(self.scale) <= 1.0):
-            raise ValueError(f"{prefix}scale must be in (0, 1].")
-        if not (-1.0 <= float(self.relative_shift) <= 1.0):
-            raise ValueError(f"{prefix}relative_shift must be in [-1, 1].")
-        if float(self.bound) <= 0.0:
-            raise ValueError(f"{prefix}bound must be > 0.")
+        _validate_bounded_affine_params(self.scale, self.relative_shift, self.bound, prefix)
         return self
 
     def to_dict(self) -> ConfigDict:
@@ -260,9 +292,8 @@ class BoundedAffineScalerConfig(PreprocessingConfig):
 
     @property
     def label(self) -> str:
-        s, rs, b = float(self.scale), float(self.relative_shift), float(self.bound)
-        shift = rs * b * (1.0 - s)
-        return f"Min{-s*b + shift:.2f}Max{s*b + shift:.2f}"
+        lower, upper = _bounded_affine_bounds(self.scale, self.relative_shift, self.bound)
+        return f"Min{lower:.2f}Max{upper:.2f}"
 
 
 @dataclass(frozen=True)
@@ -406,12 +437,7 @@ class BoundedAffinePCAConfig(ProjectionConfig):
         prefix = f"{context}: "
         if self.n_units is None or int(self.n_units) < 1:
             raise ValueError(f"{prefix}n_units must be >=1.")
-        if not (0.0 < float(self.scale) <= 1.0):
-            raise ValueError(f"{prefix}scale must be in (0, 1].")
-        if not (-1.0 <= float(self.relative_shift) <= 1.0):
-            raise ValueError(f"{prefix}relative_shift must be in [-1, 1].")
-        if float(self.bound) <= 0.0:
-            raise ValueError(f"{prefix}bound must be > 0.")
+        _validate_bounded_affine_params(self.scale, self.relative_shift, self.bound, prefix)
         return self
 
     def to_dict(self) -> ConfigDict:
@@ -425,9 +451,8 @@ class BoundedAffinePCAConfig(ProjectionConfig):
 
     @property
     def label(self) -> str:
-        s, rs, b = float(self.scale), float(self.relative_shift), float(self.bound)
-        shift = rs * b * (1.0 - s)
-        return f"BAPCA{int(self.n_units)}_Min{-s*b + shift:.2f}Max{s*b + shift:.2f}"
+        lower, upper = _bounded_affine_bounds(self.scale, self.relative_shift, self.bound)
+        return f"BAPCA{int(self.n_units)}_Min{lower:.2f}Max{upper:.2f}"
 
 
 @dataclass(frozen=True)
@@ -451,7 +476,7 @@ class ClassicalReservoirConfig(ModelConfig):
         if self.aggregation is None:
             raise ValueError(f"{prefix}aggregation is required.")
         if not isinstance(self.aggregation, AggregationMode):
-            raise TypeError(f"{prefix}aggregation must be AggregationMode, got {type(self.aggregation)}.")
+            raise TypeError(f"{prefix}aggregation must be AggregationMode, got {self.aggregation.__class__.__name__}.")
         return self
 
     def to_dict(self) -> ConfigDict:
@@ -479,11 +504,11 @@ class DistillationConfig(ModelConfig):
         self.validate()
 
     def to_dict(self) -> ConfigDict:
-        from typing import cast
-        return cast("ConfigDict", {
+        data: ConfigDict = {
             "teacher": self.teacher.to_dict(),
             "student.hidden_layers": tuple(int(v) for v in (self.student.hidden_layers or ())),
-        })
+        }
+        return data
 
     def validate(self, context: str = "") -> DistillationConfig:
         prefix = f"{context}: " if context else ""
@@ -544,7 +569,7 @@ class PassthroughConfig(ModelConfig):
 
     def validate(self, context: str = "passthrough") -> PassthroughConfig:
         if not isinstance(self.aggregation, AggregationMode):
-            raise TypeError(f"{context}: aggregation must be AggregationMode, got {type(self.aggregation)}.")
+            raise TypeError(f"{context}: aggregation must be AggregationMode, got {self.aggregation.__class__.__name__}.")
         return self
 
     def to_dict(self) -> ConfigDict:
@@ -591,7 +616,7 @@ class QuantumReservoirConfig(ModelConfig):
         if self.n_qubits is not None and int(self.n_qubits) <= 0:
             raise ValueError(f"{prefix}n_qubits must be positive when specified.")
         if not isinstance(self.aggregation, AggregationMode):
-            raise TypeError(f"{prefix}aggregation must be AggregationMode, got {type(self.aggregation)}.")
+            raise TypeError(f"{prefix}aggregation must be AggregationMode, got {self.aggregation.__class__.__name__}.")
         # Validate measurement_basis
         valid_bases = ("Z", "ZZ", "Z+ZZ")
         if self.measurement_basis not in valid_bases:
@@ -664,7 +689,7 @@ class PolyRidgeReadoutConfig(ReadoutConfig):
     lambda_candidates: tuple[float, ...] | None
     degree: int
     mode: Literal["full", "square_only", "interaction_only"]
-    norm_threshold: float | None
+    norm_threshold: float | None = 100.0
 
     def validate(self, context: str = "polyridgereadout") -> PolyRidgeReadoutConfig:
         if self.lambda_candidates is not None:

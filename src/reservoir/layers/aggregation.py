@@ -47,6 +47,7 @@ class StateAggregator(ABC):
     # --- Interface required by Aggregator Protocol ---
 
     def fit(self, features: JaxF64, y: JaxF64 | None = None) -> StateAggregator:
+        _ = (features, y)
         return self
 
     def transform(self, features: JaxF64, log_label: str | None = None) -> JaxF64:

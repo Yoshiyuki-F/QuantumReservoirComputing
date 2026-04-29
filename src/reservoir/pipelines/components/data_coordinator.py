@@ -32,14 +32,16 @@ class DataLoader:
             self.batch_size = batch_size
 
     def __iter__(self) -> BatchIterator:
-        if self.num_samples == 0 or self.X is None:
+        x = self.X
+        y = self.y
+        if self.num_samples == 0 or x is None:
             return
         for i in range(0, self.num_samples, self.batch_size):
             end = min(i + self.batch_size, self.num_samples)
-            bx = to_jax_f64(self.X[i:end])
+            bx = to_jax_f64(x[i:end])
             if self.projection is not None:
                 bx = self.projection(bx)
-            by = to_jax_f64(self.y[i:end]) if self.y is not None else None
+            by = to_jax_f64(y[i:end]) if y is not None else None
             yield bx, by
 
 
@@ -132,7 +134,14 @@ class DataCoordinator:
             return None
             
         # Retrieve original targets based on split name
-        targets = getattr(self.processed, f"{split}_y", None)
+        if split == "train":
+            targets = self.processed.train_y
+        elif split == "val":
+            targets = self.processed.val_y
+        elif split == "test":
+            targets = self.processed.test_y
+        else:
+            targets = None
         if targets is None:
             return None
 

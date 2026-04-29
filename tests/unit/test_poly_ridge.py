@@ -1,4 +1,8 @@
 """Unit tests for PolyRidgeReadout."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
 import numpy as np
 import jax.numpy as jnp
 import pytest
@@ -7,6 +11,11 @@ from reservoir.readout.poly_ridge import PolyRidgeReadout
 from reservoir.readout.ridge import RidgeCV
 from reservoir.models.config import PolyRidgeReadoutConfig
 from reservoir.readout.factory import ReadoutFactory
+
+if TYPE_CHECKING:
+    from typing import Literal
+
+    from jax import Array
 
 
 # -------------------------------------------------------------------
@@ -72,7 +81,7 @@ class TestFullExpansion:
         model = PolyRidgeReadout(lambda_candidates=(1.0,), degree=2, mode="full")
 
         @jax.jit
-        def expand(x):
+        def expand(x: Array) -> Array:
             return model._expand_features(x)
 
         X = jnp.ones((1, 5))
@@ -118,7 +127,7 @@ class TestFitWithValidation:
         X_va = jnp.array(rng.standard_normal((40, 10)))
         y_va = jnp.array(rng.standard_normal(40))
 
-        def mse_fn(pred, truth):
+        def mse_fn(pred: Array, truth: Array) -> float:
             return float(np.mean((pred - truth) ** 2))
 
         model = PolyRidgeReadout(lambda_candidates=(1e-2, 1.0), degree=2, mode="square_only")
@@ -180,8 +189,9 @@ class TestConfig:
             cfg.validate()
 
     def test_invalid_mode(self):
+        invalid_mode = cast("Literal['full', 'square_only', 'interaction_only']", "invalid")
         cfg = PolyRidgeReadoutConfig(
-            use_intercept=True, lambda_candidates=(1.0,), degree=2, mode="invalid"
+            use_intercept=True, lambda_candidates=(1.0,), degree=2, mode=invalid_mode
         )
         with pytest.raises(ValueError, match="mode must be"):
             cfg.validate()

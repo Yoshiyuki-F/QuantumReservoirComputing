@@ -11,6 +11,7 @@ from functools import partial, lru_cache
 
 import jax
 import jax.numpy as jnp
+# noinspection PyPackageRequirements
 import tensorcircuit as tc
 
 from .backend import I_MAT, X_MAT, Y_MAT, Z_MAT
@@ -377,3 +378,19 @@ def _forward_jit(
     )
 
     return final_carry, stacked_outputs.reshape(T, B, -1)
+
+
+get_fused_rotation_matrix = _get_fused_rotation_matrix
+get_paper_R_unitary = _get_paper_R_unitary
+make_circuit_logic = _make_circuit_logic
+step_jit = _step_jit
+forward_jit = _forward_jit
+
+
+__all__ = [
+    "forward_jit",
+    "get_fused_rotation_matrix",
+    "get_paper_R_unitary",
+    "make_circuit_logic",
+    "step_jit",
+]

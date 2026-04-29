@@ -61,7 +61,7 @@ class Preprocessor(abc.ABC):
     @property
     def label(self) -> str:
         """Short label for filenames."""
-        return type(self).__name__
+        return self.__class__.__name__
 
 
 # --- 2. Concrete Implementations ---
@@ -93,18 +93,22 @@ class StandardScaler(Preprocessor):
 
     def transform(self, X: NpF64) -> NpF64:
         arr = X
-        if self.mean_ is not None:
-            arr -= self.mean_
-        if self.scale_ is not None:
-            arr /= self.scale_
+        mean = self.mean_
+        scale = self.scale_
+        if mean is None or scale is None:
+            raise RuntimeError("StandardScaler must be fitted before transform().")
+        arr -= mean
+        arr /= scale
         return arr
 
     def inverse_transform(self, X: NpF64) -> NpF64:
         arr = X
-        if self.scale_ is not None:
-            arr *= self.scale_
-        if self.mean_ is not None:
-            arr += self.mean_
+        mean = self.mean_
+        scale = self.scale_
+        if mean is None or scale is None:
+            raise RuntimeError("StandardScaler must be fitted before inverse_transform().")
+        arr *= scale
+        arr += mean
         return arr
 
     def to_dict(self) -> ConfigDict:
@@ -140,9 +144,11 @@ class MinMaxScaler(Preprocessor):
         else:
             reduce_axis = 0
 
-        self.min_ = np.min(X_np, axis=reduce_axis)
-        max_ = np.max(X_np, axis=reduce_axis)
-        self.range_ = max_ - self.min_
+        min_val = np.min(X_np, axis=reduce_axis)
+        max_val = np.max(X_np, axis=reduce_axis)
+        range_val = max_val - min_val
+        self.min_ = min_val
+        self.range_ = range_val
 
         # Avoid division by zero for constant features
         if self.range_ is not None:
@@ -152,10 +158,13 @@ class MinMaxScaler(Preprocessor):
 
     def transform(self, X: NpF64) -> NpF64:
         arr = X
+        min_ = self.min_
+        range_ = self.range_
+        if min_ is None or range_ is None:
+            raise RuntimeError("MinMaxScaler must be fitted before transform().")
         # 1. Scale to [0, 1]
-        if self.min_ is not None and self.range_ is not None:
-            arr -= self.min_
-            arr /= self.range_
+        arr -= min_
+        arr /= range_
         
         # 2. Scale to [feature_min, feature_max]
         scale = self.feature_max - self.feature_min
@@ -166,6 +175,10 @@ class MinMaxScaler(Preprocessor):
 
     def inverse_transform(self, X: NpF64) -> NpF64:
         arr = X
+        min_ = self.min_
+        range_ = self.range_
+        if min_ is None or range_ is None:
+            raise RuntimeError("MinMaxScaler must be fitted before inverse_transform().")
         # 1. Reverse Scale to [0, 1]
         scale = self.feature_max - self.feature_min
         if scale != 0:
@@ -173,9 +186,8 @@ class MinMaxScaler(Preprocessor):
             arr /= scale
             
         # 2. Reverse Scale to Original
-        if self.min_ is not None and self.range_ is not None:
-            arr *= self.range_
-            arr += self.min_
+        arr *= range_
+        arr += min_
             
         return arr
 
@@ -273,8 +285,8 @@ class BoundedAffineScaler(Preprocessor):
     bound : float
         Maximum absolute boundary limit.
 
-    Math
-    ----
+    Computation:
+
     x_norm = MinMax(X, feature_min=-1, feature_max=1)
     shift  = relative_shift * bound * (1 - scale)
     y      = (scale * bound) * x_norm + shift        # ∈ [-bound, bound] always
@@ -331,7 +343,7 @@ def create_preprocessor(config: PreprocessingConfig) -> Preprocessor:
     Factory function to create a Preprocessor instance based on the config type.
     Raises TypeError if the config type is not registered.
     """
-    raise TypeError(f"Unknown preprocessor config type: {type(config)}")
+    raise TypeError(f"Unknown preprocessor config type: {config.__class__.__name__}")
 
 
 def register_preprocessors(

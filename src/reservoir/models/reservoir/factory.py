@@ -9,11 +9,10 @@ from __future__ import annotations
 from reservoir.models.config import ClassicalReservoirConfig, QuantumReservoirConfig
 from reservoir.models.presets import PipelineConfig
 from reservoir.models.reservoir.classical import ClassicalReservoir
-from reservoir.models.reservoir.quantum import QuantumReservoir
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from reservoir.core.types import TopologyMeta
+    from reservoir.core.types import DetailsMeta, ShapesMeta, TopologyMeta
     from reservoir.models.reservoir.base import ReservoirModel
 
 
@@ -32,7 +31,7 @@ class ReservoirFactory:
         Assumes inputs are already projected to the reservoir dimensionality (input_dim).
         """
         if not isinstance(pipeline_config, PipelineConfig):
-            raise TypeError(f"ReservoirFactory expects PipelineConfig, got {type(pipeline_config)}.")
+            raise TypeError(f"ReservoirFactory expects PipelineConfig, got {pipeline_config.__class__.__name__}.")
         model = pipeline_config.model
         
         if isinstance(model, ClassicalReservoirConfig):
@@ -45,6 +44,8 @@ class ReservoirFactory:
                 aggregation_mode=model.aggregation,
             )
         elif isinstance(model, QuantumReservoirConfig):
+            from reservoir.models.reservoir.quantum.model import QuantumReservoir
+
             # n_qubits: use config value if specified, otherwise infer from Step 3 output
             n_qubits = model.n_qubits if model.n_qubits is not None else projected_input_dim
             node = QuantumReservoir(
@@ -62,7 +63,7 @@ class ReservoirFactory:
                 use_reuploading=model.use_reuploading,
             )
         else:
-            raise TypeError(f"ReservoirFactory requires Classical or Quantum config, got {type(model)}.")
+            raise TypeError(f"ReservoirFactory requires Classical or Quantum config, got {model.__class__.__name__}.")
 
         if input_shape is None:
             raise ValueError("input_shape must be provided.")
@@ -105,7 +106,7 @@ class ReservoirFactory:
         projected_shape = _with_batch((t_steps, projected_input_dim))
 
         topo_meta["type"] = pipeline_config.model_type.value.upper()
-        topo_meta["shapes"] = {
+        shapes: ShapesMeta = {
             "input": input_shape,
             "preprocessed": None,
             "projected": projected_shape,
@@ -114,10 +115,12 @@ class ReservoirFactory:
             "feature": feature_shape,
             "output": output_shape,
         }
-        topo_meta["details"] = {
+        details: DetailsMeta = {
             "preprocess": None,
             "agg_mode": agg_mode_enum.value,
             "student_layers": None,
         }
+        topo_meta["shapes"] = shapes
+        topo_meta["details"] = details
         node.topology_meta = topo_meta
         return node

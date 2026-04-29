@@ -43,7 +43,7 @@ class ModelFactory:
 
         if pipeline_enum in {Model.CLASSICAL_RESERVOIR, Model.QUANTUM_RESERVOIR}:
             if not isinstance(config.model, (ClassicalReservoirConfig, QuantumReservoirConfig)):
-                raise TypeError(f"Reservoir pipelines require ClassicalReservoirConfig or QuantumReservoirConfig, got {type(config.model)}.")
+                raise TypeError(f"Reservoir pipelines require ClassicalReservoirConfig or QuantumReservoirConfig, got {config.model.__class__.__name__}.")
 
             return ReservoirFactory.create_model(
                 pipeline_config=config,
@@ -54,7 +54,7 @@ class ModelFactory:
 
         if pipeline_enum in {Model.FNN_DISTILLATION_CLASSICAL, Model.FNN_DISTILLATION_QUANTUM}:
             if not isinstance(config.model, DistillationConfig):
-                raise TypeError(f"fnn_distillation_classical pipeline requires DistillationConfig, got {type(config.model)}.")
+                raise TypeError(f"fnn_distillation_classical pipeline requires DistillationConfig, got {config.model.__class__.__name__}.")
             return DistillationFactory.create_model(
                 distillation_config=config.model,
                 training=training_cfg,
@@ -65,7 +65,7 @@ class ModelFactory:
 
         if pipeline_enum == Model.FNN:
             if not isinstance(config.model, FNNConfig):
-                raise TypeError(f"FNN pipeline requires FNNConfig, got {type(config.model)}.")
+                raise TypeError(f"FNN pipeline requires FNNConfig, got {config.model.__class__.__name__}.")
 
             # Check if windowed mode
             window_size = config.model.window_size
@@ -135,7 +135,7 @@ class ModelFactory:
         if pipeline_enum == Model.PASSTHROUGH:
             from reservoir.models.config import PassthroughConfig
             if not isinstance(config.model, PassthroughConfig):
-                raise TypeError(f"PASSTHROUGH pipeline requires PassthroughConfig, got {type(config.model)}.")
+                raise TypeError(f"PASSTHROUGH pipeline requires PassthroughConfig, got {config.model.__class__.__name__}.")
             from reservoir.models.passthrough.factory import PassthroughFactory
             return PassthroughFactory.create_model(
                 pipeline_config=config,

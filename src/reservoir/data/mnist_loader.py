@@ -43,7 +43,7 @@ def image_to_sequence(image: NpF64, *, n_steps: int) -> NpF64:
     flat = image.reshape(total_pixels)
     result = flat.reshape(n_steps, features_per_step)
     if result.dtype != np.float64:
-        raise ValueError(f"MNIST sequence must be float64, got {result.dtype}")
+        raise ValueError(f"MNIST sequence must be float64, got {result.dtype.name}")
     return result
 
 

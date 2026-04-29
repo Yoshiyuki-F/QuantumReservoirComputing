@@ -65,7 +65,7 @@ class Projection(abc.ABC):
     @property
     def label(self) -> str:
         """Short label for filenames."""
-        return f"{type(self).__name__}{self._output_dim}"
+        return f"{self.__class__.__name__}{self._output_dim}"
 
 
 # --- 2. Concrete Implementations ---
@@ -397,11 +397,12 @@ class PCAProjection(Projection):
         return self
 
     def _project(self, inputs: JaxF64) -> JaxF64:
-        if not self._fitted or self._components is None:
+        components = self._components
+        if not self._fitted or components is None:
             raise RuntimeError("PCAProjection: fit() must be called before projection")
         
         # Direct projection (no scaling)
-        return jnp.dot(inputs, self._components.T)
+        return jnp.dot(inputs, components.T)
 
     def to_dict(self) -> ConfigDict:
         return {
@@ -462,27 +463,31 @@ class BoundedAffinePCA(PCAProjection):
         pca_out = jnp.dot(X.reshape(-1, X.shape[-1]), components.T)
 
         # Per-component min/max for normalization
-        self._pca_min = jnp.min(pca_out, axis=0)  # (n_units,)
-        self._pca_max = jnp.max(pca_out, axis=0)  # (n_units,)
+        pca_min = jnp.min(pca_out, axis=0)  # (n_units,)
+        pca_max = jnp.max(pca_out, axis=0)  # (n_units,)
 
         # Avoid division by zero for constant components
-        range_ = self._pca_max - self._pca_min
-        self._pca_max = jnp.where(range_ < 1e-12, self._pca_min + 1.0, self._pca_max)
+        range_ = pca_max - pca_min
+        self._pca_min = pca_min
+        self._pca_max = jnp.where(range_ < 1e-12, pca_min + 1.0, pca_max)
 
         return self
 
     def _project(self, inputs: JaxF64) -> JaxF64:
-        if not self._fitted or self._components is None:
+        components = self._components
+        pca_min = self._pca_min
+        pca_max = self._pca_max
+        if not self._fitted or components is None:
             raise RuntimeError("BoundedAffinePCA: fit() must be called before projection")
-        if self._pca_min is None or self._pca_max is None:
+        if pca_min is None or pca_max is None:
             raise RuntimeError("BoundedAffinePCA: fit() must be called before projection")
 
         # 1. PCA projection (no scaling)
-        pca_out = jnp.dot(inputs, self._components.T)
+        pca_out = jnp.dot(inputs, components.T)
 
         # 2. MinMax normalize to [-1, 1] per component
-        range_ = self._pca_max - self._pca_min
-        x_norm = 2.0 * (pca_out - self._pca_min) / range_ - 1.0
+        range_ = pca_max - pca_min
+        x_norm = 2.0 * (pca_out - pca_min) / range_ - 1.0
 
         # 3. Bounded affine: y = (x_norm * bound * scale) + shift
         return (x_norm * self.bound * self.scale) + self._shift
@@ -511,7 +516,8 @@ def create_projection(config: ProjectionConfig, input_dim: int) -> Projection:
     Factory function to create a Projection instance based on the config type.
     Raises TypeError if the config type is not registered.
     """
-    raise TypeError(f"Unknown projection config type: {type(config)}")
+    _ = input_dim
+    raise TypeError(f"Unknown projection config type: {config.__class__.__name__}")
 
 def register_projections(
     CenterCropConfigClass: type[CenterCropProjectionConfig],

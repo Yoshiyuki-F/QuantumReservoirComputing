@@ -8,11 +8,24 @@ from reservoir.readout.base import ReadoutModule
 from reservoir.models.config import FNNConfig
 from reservoir.models.nn.fnn import FNNModel
 from reservoir.training.config import TrainingConfig  # noqa: TC001
-from reservoir.core.types import JaxF64, ConfigDict, TrainLogs  # noqa: TC001
-from typing import TYPE_CHECKING
+from reservoir.core.types import JaxF64, ConfigDict, ConfigValue, TrainLogs  # noqa: TC001
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable
+
+def _parse_hidden_layers(value: ConfigValue | None) -> tuple[int, ...]:
+    def parse_item(item: ConfigValue) -> int:
+        match item:
+            case int() | float() | str():
+                return int(item)
+            case _:
+                raise ValueError(f"hidden_layers entries must be numeric, got {item.__class__.__name__}.")
+
+    match value:
+        case None:
+            return ()
+        case tuple() | list():
+            return tuple(parse_item(v) for v in value)
+        case _:
+            raise ValueError(f"hidden_layers must be a sequence of integers, got {value.__class__.__name__}.")
 
 
 @beartype
@@ -82,5 +95,4 @@ class FNNReadout(ReadoutModule):
 
     @classmethod
     def from_dict(cls, data: ConfigDict) -> FNNReadout:
-        from typing import cast
-        return cls(hidden_layers=tuple(cast("Iterable[int]", data.get("hidden_layers", ()))))
+        return cls(hidden_layers=_parse_hidden_layers(data.get("hidden_layers")))

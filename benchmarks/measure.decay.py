@@ -13,8 +13,8 @@ def measure_circuit_attenuation():
         seed=42,
         aggregation_mode=AggregationMode.SEQUENCE,
         feedback_scale=1.0,  # ここは測定用に1.0固定（基準）
+        leak_rate=1.0,
         measurement_basis="Z+ZZ",
-        encoding_strategy="Rx",
         noise_type="clean",
         noise_prob=0.0,
         readout_error=0.0,
@@ -64,8 +64,8 @@ def measure_circuit_attenuation():
         _, output = model.step(state, random_feedback)
 
         # 統計量の計算
-        input_std = jnp.std(random_feedback)
-        output_std = jnp.std(output)
+        input_std = float(jnp.std(random_feedback))
+        output_std = float(jnp.std(output))
 
         attenuation_ratio = output_std / input_std
         recommended_feedback = 1.0 / attenuation_ratio if attenuation_ratio > 0 else 999.0

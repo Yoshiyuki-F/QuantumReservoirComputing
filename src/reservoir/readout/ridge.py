@@ -4,13 +4,13 @@ Refactored Ridge regression designed with SOLID principles.
 """
 import jax
 import jax.numpy as jnp
-from typing import TypedDict, cast, TYPE_CHECKING
+from typing import TypedDict, TYPE_CHECKING
 import jax.scipy.linalg
 
 from reservoir.readout.base import ReadoutModule
 
 if TYPE_CHECKING:
-    from reservoir.core.types import JaxF64, ConfigDict
+    from reservoir.core.types import JaxF64, ConfigDict, ConfigValue
 
 # Robustness: Ridge Regression often requires x64 for matrix inversion stability.
 def _ensure_x64() -> None:
@@ -28,8 +28,19 @@ class _RidgeData(TypedDict, total=False):
     norm_threshold: float | None
 
 
-def _parse_float_tuple(value: ConfigDict) -> tuple[float, ...]:
-    return tuple(float(v) for v in cast("tuple[float, ...]", value))
+def _parse_float_tuple(value: ConfigValue) -> tuple[float, ...]:
+    def parse_item(item: ConfigValue) -> float:
+        match item:
+            case int() | float() | str():
+                return float(item)
+            case _:
+                raise ValueError(f"Expected a numeric sequence entry, got {item.__class__.__name__}.")
+
+    match value:
+        case tuple() | list():
+            return tuple(parse_item(v) for v in value)
+        case _:
+            raise ValueError(f"Expected a float sequence, got {value.__class__.__name__}.")
 
 
 def _parse_ridge_data(data: ConfigDict) -> _RidgeData:
@@ -45,18 +56,18 @@ def _parse_ridge_data(data: ConfigDict) -> _RidgeData:
 
     coef = data.get("coef")
     if coef is not None:
-        parsed["coef"] = _parse_float_tuple(cast("ConfigDict", coef))
+        parsed["coef"] = _parse_float_tuple(coef)
 
     intercept = data.get("intercept")
     if intercept is not None:
         try:
-            parsed["intercept"] = _parse_float_tuple(cast("ConfigDict", intercept))
-        except TypeError:
+            parsed["intercept"] = _parse_float_tuple(intercept)
+        except (TypeError, ValueError):
             parsed["intercept"] = float(str(intercept))
 
     lambda_candidates = data.get("lambda_candidates")
     if lambda_candidates is not None:
-        parsed["lambda_candidates"] = _parse_float_tuple(cast("ConfigDict", lambda_candidates))
+        parsed["lambda_candidates"] = _parse_float_tuple(lambda_candidates)
 
     norm_threshold = data.get("norm_threshold")
     if norm_threshold is not None:
@@ -129,7 +140,10 @@ class RidgeRegression(ReadoutModule):
 
         # Flatten if original target was 1D
         if targets.ndim == 1:
-            self.coef_ = self.coef_.ravel()
+            coef = self.coef_
+            if coef is None:
+                raise RuntimeError("RidgeRegression coefficients were not initialized after fit().")
+            self.coef_ = coef.ravel()
         
         return self
 
@@ -191,27 +205,33 @@ class RidgeCV(ReadoutModule):
 
     @property
     def ridge_lambda(self) -> float:
-        return self.best_model.ridge_lambda if self.best_model else float(self.lambda_candidates[0])
+        best_model = self.best_model
+        return best_model.ridge_lambda if best_model is not None else float(self.lambda_candidates[0])
 
     @property
     def coef_(self) -> JaxF64 | None:
-        return self.best_model.coef_ if self.best_model else None
+        best_model = self.best_model
+        return best_model.coef_ if best_model is not None else None
 
     @property
     def intercept_(self) -> JaxF64 | None:
-        return self.best_model.intercept_ if self.best_model else None
+        best_model = self.best_model
+        return best_model.intercept_ if best_model is not None else None
 
     def fit(self, states: JaxF64, targets: JaxF64) -> RidgeCV:
         """Fit using current best/default lambda."""
-        if self.best_model is None:
-             self.best_model = RidgeRegression(self.lambda_candidates[0], self.use_intercept)
-        self.best_model.fit(states, targets)
+        best_model = self.best_model
+        if best_model is None:
+             best_model = RidgeRegression(self.lambda_candidates[0], self.use_intercept)
+             self.best_model = best_model
+        best_model.fit(states, targets)
         return self
 
     def predict(self, states: JaxF64) -> JaxF64:
-        if self.best_model is None:
+        best_model = self.best_model
+        if best_model is None:
             raise RuntimeError("RidgeCV model is not fitted.")
-        return self.best_model.predict(states)
+        return best_model.predict(states)
 
     def to_dict(self) -> ConfigDict:
         data = self.best_model.to_dict() if self.best_model else {}
@@ -228,12 +248,13 @@ class RidgeCV(ReadoutModule):
              lam_val = d.get("ridge_lambda", 0.0)
              candidates = (float(lam_val),)
         else:
-             candidates = tuple(float(x) for x in candidates_list)
-             
+            candidates = tuple(float(x) for x in candidates_list)
+        norm_threshold = d.get("norm_threshold")
+
         instance = cls(
             lambda_candidates=candidates, 
             use_intercept=bool(d.get("use_intercept", True)),
-            norm_threshold=(float(d["norm_threshold"]) if d.get("norm_threshold") is not None else None)
+            norm_threshold=norm_threshold,
         )
         instance.best_model = RidgeRegression.from_dict(data)
         return instance

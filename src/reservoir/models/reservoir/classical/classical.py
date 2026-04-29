@@ -108,7 +108,8 @@ class ClassicalReservoir(Reservoir[JaxF64]):
         """
         Reservoir has no trainable parameters; run forward for compatibility and return empty logs.
         """
-        return {}
+        logs: TrainLogs = {}
+        return logs
 
     def to_dict(self) -> ConfigDict:
         data = super().to_dict()

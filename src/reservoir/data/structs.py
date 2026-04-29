@@ -17,5 +17,5 @@ class SplitDataset:
     train_y: NpF64
     test_X: NpF64
     test_y: NpF64
-    val_X: NpF64
-    val_y: NpF64
+    val_X: NpF64 | None
+    val_y: NpF64 | None

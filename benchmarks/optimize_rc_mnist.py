@@ -17,10 +17,12 @@ uv run python benchmarks/optimize_rc_mnist.py --n-trials 100
 Visualization:
 uv run optuna-dashboard  sqlite:////home/yoshi/PycharmProjects/Reservoir/benchmarks/optimize_rc.db
 """
+from __future__ import annotations
 
 import argparse
 import dataclasses
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import optuna
@@ -35,10 +37,21 @@ from reservoir.models.presets import (  # noqa: E402
     DEFAULT_RIDGE_READOUT,
 )
 from reservoir.models.config import (  # noqa: E402
+    ClassicalReservoirConfig,
+    ReadoutConfig,
     PolyRidgeReadoutConfig,
-    RandomProjectionConfig, BoundedAffineScalerConfig,
+    RandomProjectionConfig,
+    BoundedAffineScalerConfig,
 )
 from reservoir.data.identifiers import Dataset  # noqa: E402
+
+if TYPE_CHECKING:
+    from reservoir.core.types import ResultDict, TestMetrics, TrainMetrics
+
+
+def _set_trial_float_attr(trial: optuna.Trial, key: str, value: float | None) -> None:
+    if value is not None:
+        trial.set_user_attr(key, float(value))
 
 
 # ---------------------------------------------------------------------------
@@ -66,12 +79,15 @@ def build_config(
         spectral_radius: float,
         leak_rate: float,
         rc_connectivity: float,
-        readout_config,
+        readout_config: ReadoutConfig | None,
 ):
     """
     Build a PipelineConfig with dynamically updated parameters.
     """
     base = CLASSICAL_RESERVOIR_PRESET
+    base_model = base.model
+    if not isinstance(base_model, ClassicalReservoirConfig):
+        raise TypeError("CLASSICAL_RESERVOIR_PRESET.model must be ClassicalReservoirConfig")
 
 
     if isinstance(base.preprocess, BoundedAffineScalerConfig):
@@ -100,7 +116,7 @@ def build_config(
 
     # Update Reservoir (spectral_radius, leak_rate, connectivity)
     new_model = dataclasses.replace(
-        base.model,
+        base_model,
         spectral_radius=spectral_radius,
         leak_rate=leak_rate,
         rc_connectivity=rc_connectivity,
@@ -117,7 +133,7 @@ def build_config(
 
 
 
-def make_objective(readout_config, dataset_enum: Dataset):
+def make_objective(readout_config: ReadoutConfig | None, dataset_enum: Dataset):
     """Factory that returns an Optuna objective."""
 
     def objective(trial: optuna.Trial) -> float:
@@ -174,12 +190,19 @@ def make_objective(readout_config, dataset_enum: Dataset):
 
         # === 3. Run Pipeline ===
         try:
-            from typing import Any
-            results: dict[str, Any] = run_pipeline(config, dataset_enum)
+            results: ResultDict = run_pipeline(config, dataset_enum)
 
             # === 4. Extract & Store ALL Metrics ===
-            test_results = results.get("test", {})
-            train_results = results.get("train", {})
+            test_results_raw = results.get("test")
+            if test_results_raw is None:
+                test_results: TestMetrics = {}
+            else:
+                test_results = test_results_raw
+            train_results_raw = results.get("train")
+            if train_results_raw is None:
+                train_results: TrainMetrics = {}
+            else:
+                train_results = train_results_raw
             
             # For classification, look for 'accuracy'
             accuracy = test_results.get("accuracy", 0.0)
@@ -190,10 +213,10 @@ def make_objective(readout_config, dataset_enum: Dataset):
                 trial.set_user_attr("best_lambda", float(best_lambda))
 
             # Store extra metrics
-            for key in ["accuracy", "precision", "recall", "f1"]:
-                 val = test_results.get(key, None)
-                 if val is not None:
-                     trial.set_user_attr(key, float(val))
+            _set_trial_float_attr(trial, "accuracy", test_results.get("accuracy"))
+            _set_trial_float_attr(trial, "precision", test_results.get("precision"))
+            _set_trial_float_attr(trial, "recall", test_results.get("recall"))
+            _set_trial_float_attr(trial, "f1", test_results.get("f1"))
 
             if accuracy <= 0.11: # Random guess threshold roughly
                  trial.set_user_attr("status", "low_acc")

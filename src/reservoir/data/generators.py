@@ -91,9 +91,9 @@ def generate_lorenz_data(config: LorenzConfig) -> tuple[NpF64, NpF64]:
         washup_lt * lt でウォームアップステップ数を計算します。
     """
     # 初期値（互換性のためオプショナル）
-    x = 1.0
-    y = 1.0
-    z = 1.0
+    lorenz_x = 1.0
+    lorenz_y = 1.0
+    lorenz_z = 1.0
     
     # Calculate steps from LT parameters
     # steps_per_lt = lyapunov_time_unit / dt
@@ -107,15 +107,15 @@ def generate_lorenz_data(config: LorenzConfig) -> tuple[NpF64, NpF64]:
     
     for i in range(total_steps):
         # Lorenz方程式の数値積分（オイラー法）
-        dx = config.sigma * (y - x)
-        dy = x * (config.rho - z) - y
-        dz = x * y - config.beta * z
+        dx = config.sigma * (lorenz_y - lorenz_x)
+        dy = lorenz_x * (config.rho - lorenz_z) - lorenz_y
+        dz = lorenz_x * lorenz_y - config.beta * lorenz_z
         
-        x += dx * config.dt
-        y += dy * config.dt
-        z += dz * config.dt
+        lorenz_x += dx * config.dt
+        lorenz_y += dy * config.dt
+        lorenz_z += dz * config.dt
         
-        data[i] = [x, y, z]
+        data[i] = [lorenz_x, lorenz_y, lorenz_z]
     
     # Discard warmup steps
     data = data[warmup_steps:]
@@ -164,20 +164,20 @@ def generate_lorenz96_data(config: Lorenz96Config) -> tuple[NpF64, NpF64]:
     idx_minus_1 = (indices - 1) % N
     idx_plus_1 = (indices + 1) % N
 
-    def lorenz96_deriv(x: NpF64) -> NpF64:
+    def lorenz96_deriv(state_vec: NpF64) -> NpF64:
         # dx/dt = (x[i+1] - x[i-2]) * x[i-1] - x[i] + F
-        return (x[idx_plus_1] - x[idx_minus_2]) * x[idx_minus_1] - x + F
+        return (state_vec[idx_plus_1] - state_vec[idx_minus_2]) * state_vec[idx_minus_1] - state_vec + F
 
     # RK4 Integration (pure NumPy loop — runs once during data generation)
     data = np.empty((total_steps, N), dtype=np.float64)
-    x = x0
+    state_vec = x0
     for t in range(total_steps):
-        k1 = lorenz96_deriv(x)
-        k2 = lorenz96_deriv(x + k1 * dt / 2)
-        k3 = lorenz96_deriv(x + k2 * dt / 2)
-        k4 = lorenz96_deriv(x + k3 * dt)
-        x = x + (k1 + 2*k2 + 2*k3 + k4) * dt / 6.0
-        data[t] = x
+        k1 = lorenz96_deriv(state_vec)
+        k2 = lorenz96_deriv(state_vec + k1 * dt / 2)
+        k3 = lorenz96_deriv(state_vec + k2 * dt / 2)
+        k4 = lorenz96_deriv(state_vec + k3 * dt)
+        state_vec = state_vec + (k1 + 2*k2 + 2*k3 + k4) * dt / 6.0
+        data[t] = state_vec
         
     # Discard warmup steps
     data = data[warmup_steps:]
@@ -228,34 +228,34 @@ def generate_mackey_glass_data(config: MackeyGlassConfig) -> tuple[NpF64, NpF64]
     data_steps = int((config.train_lt + config.val_lt + config.test_lt) * steps_per_lt) + 1
     total_steps = data_steps + history_length + warmup_steps
 
-    x = np.full(total_steps, fill_value=0.0)
+    series = np.full(total_steps, fill_value=0.0)
     initial_value = 1.2
-    x[:history_length] = initial_value
+    series[:history_length] = initial_value
 
     for i in range(history_length, total_steps):
-        x_prev = x[i - 1]
-        x_tau = x[i - delay_steps]
+        x_prev = series[i - 1]
+        x_tau = series[i - delay_steps]
         dx = (beta * x_tau) / (1 + x_tau**n) - gamma * x_prev
-        x[i] = x_prev + dt * dx
+        series[i] = x_prev + dt * dx
 
     # トランジェント除去
     start_idx = history_length + warmup_steps
     end_idx = start_idx + data_steps
-    if end_idx > len(x):
+    if end_idx > len(series):
         raise ValueError("Warmup and history exceed generated sequence length")
-    x = x[start_idx:end_idx]
+    series = series[start_idx:end_idx]
 
     # ノイズを追加
     if config.noise_level > 0:
         # Use config seed for deterministic noise if provided
         if config.seed is not None:
              np.random.seed(config.seed)
-        noise = np.random.normal(0, config.noise_level, len(x))
-        x += noise
+        noise = np.random.normal(0, config.noise_level, len(series))
+        series += noise
 
     # 入力は現在の値、ターゲットは次の値
-    input_data = x[:-1].reshape(-1, 1)
-    target_data = x[1:].reshape(-1, 1)
+    input_data = series[:-1].reshape(-1, 1)
+    target_data = series[1:].reshape(-1, 1)
 
     return input_data, target_data
 
@@ -269,10 +269,8 @@ def generate_mnist_sequence_data(
     Generate MNIST-based sequence data by scanning images as time series.
 
     Args:
-        config: MNISTConfig with:
-            - split: str, 'train' or 'test' (default 'train')
-            - train_fraction/test_fraction: optional floats in (0, 1]
-            - time_steps: Number of time steps to reshape each image into.
+        config: MNIST generation configuration.
+        split: Dataset split override. Uses ``config.split`` when omitted.
 
     Returns:
         Tuple (input_sequences, labels) where both are numpy arrays.

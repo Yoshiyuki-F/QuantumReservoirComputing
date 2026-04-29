@@ -245,14 +245,12 @@ def plot_timeseries_comparison(
     # Time axis (shifted by global offset)
     t_start = start_step + time_offset
     t_end = t_start + (end_step - start_step)
-    import numpy as np
     t_axis = np.arange(t_start, t_end)
 
 
 
     fig, axes = plt.subplots(plot_feats, 1, figsize=(12, 3 * plot_feats), sharex=True)
 
-    import numpy as np
     axes_list = axes.flatten() if isinstance(axes, np.ndarray) else [axes]
     for i in range(plot_feats):
         ax = axes_list[i]
@@ -275,7 +273,7 @@ def plot_timeseries_comparison(
 
 
 def plot_lambda_search_boxplot(
-    residuals_history: dict[float, np.ndarray],
+    residuals_history: dict[float, NpF64],
     filename: str,
     title: str = "Lambda Search: Residuals Distribution",
     best_lambda: float | None = None,

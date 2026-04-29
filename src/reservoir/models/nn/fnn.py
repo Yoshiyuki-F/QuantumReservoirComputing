@@ -41,7 +41,7 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel[JaxF64]):
 
     def __init__(self, model_config: FNNConfig, input_dim: int, output_dim: int, classification: bool, training_config: TrainingConfig | None = None):
         if not isinstance(model_config, FNNConfig):
-            raise TypeError(f"FNNModel expects FNNConfig, got {type(model_config)}.")
+            raise TypeError(f"FNNModel expects FNNConfig, got {model_config.__class__.__name__}.")
         if int(input_dim) <= 0 or int(output_dim) <= 0:
             raise ValueError("input_dim and output_dim must be positive for FNNModel.")
 
@@ -65,7 +65,7 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel[JaxF64]):
         hidden_layers = tuple(int(h) for h in (model_config.hidden_layers or ()))
         hidden_layers = tuple(h for h in hidden_layers if h > 0)
 
-        self.layer_dims: Sequence[int] = (effective_input_dim, *hidden_layers, int(output_dim))
+        self.layer_dims: tuple[int, ...] = (effective_input_dim, *hidden_layers, int(output_dim))
 
         super().__init__({"layer_dims": self.layer_dims}, classification=classification, training_config=training_config)
 
@@ -109,9 +109,9 @@ class FNNModel(BaseFlaxModel, ClosedLoopGenerativeModel[JaxF64]):
         aligned_targets = self.adapter.align_targets(y)
         return super().evaluate(adapted_inputs, aligned_targets)
 
-    def __call__(self, X: JaxF64) -> JaxF64:
+    def __call__(self, inputs: JaxF64, return_sequences: bool = False) -> JaxF64:
         """Make model callable for batched_compute compatibility."""
-        return self.predict(X)
+        return self.predict(inputs)
 
     def _create_model_def(self) -> nn.Module:
         return FNN(layer_dims=self.layer_dims, return_hidden=False)

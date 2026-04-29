@@ -352,10 +352,10 @@ TIME_RESERVOIR_DYNAMICS = ClassicalReservoirConfig(
 '''
 uv run python -m reservoir.cli.main --model classical_reservoir --dataset mackey_glass
 '''
-n, seed, scale, rs, i_s, ic, bs, sr, lr, rc = (1024, 43,
-                                               0.9931276629248719, -0.07502047166961824,
-                                               0.1929080674483568, 0.41994880827163866, 0.8454564628001286,
-                                               1.3419461715056762, 0.9619528144715261, 0.6101109566279057)
+n, seed, scale, classical_relative_shift, i_s, ic, bs, sr, lr, rc = (1024, 43,
+                                                                    0.9931276629248719, -0.07502047166961824,
+                                                                    0.1929080674483568, 0.41994880827163866, 0.8454564628001286,
+                                                                    1.3419461715056762, 0.9619528144715261, 0.6101109566279057)
 
 TIME_CLASSICAL_RESERVOIR_PRESET = PipelineConfig(
     name="classical_reservoir",
@@ -363,7 +363,7 @@ TIME_CLASSICAL_RESERVOIR_PRESET = PipelineConfig(
     description="Echo State Network (Classical Reservoir Computing)",
     preprocess=BoundedAffineScalerConfig(
         scale=scale,
-        relative_shift=rs,
+        relative_shift=classical_relative_shift,
         bound=np.pi,
     ),
     projection=RandomProjectionConfig(
@@ -429,7 +429,7 @@ WINDOWED_FNN_PRESET = PipelineConfig(
 
 
 # --------------------------------------------------------------------------
-scale, rs, f, lr = 0.038015263451324666, 0.19041335672406576, 2.6764652369291992, 0.1732129929337844 #q10 mg
+scale, quantum_relative_shift, f, lr = 0.038015263451324666, 0.19041335672406576, 2.6764652369291992, 0.1732129929337844 #q10 mg
 '''
 uv run python -m reservoir.cli.main --model quantum_reservoir --dataset lorenz
 uv run python -m reservoir.cli.main --model quantum_reservoir --dataset mackey_glass
@@ -441,7 +441,7 @@ TIME_QUANTUM_RESERVOIR_PRESET = PipelineConfig(
     description="Quantum Gate-Based Reservoir Computing (Time Series)",
     preprocess=BoundedAffineScalerConfig(
         scale=scale,
-        relative_shift=rs,
+        relative_shift=quantum_relative_shift,
         bound=np.pi,
     ),
     projection=None, # No projection — MinMaxScaler output goes directly to R-gate
@@ -501,6 +501,12 @@ def get_model_preset(model: Model, dataset: Dataset) -> PipelineConfig:
         raise ValueError(f"No preset found for model {model} with classification={is_classification}")
 
 __all__ = [
+    "CLASSICAL_RESERVOIR_PRESET",
+    "DEFAULT_RIDGE_READOUT",
+    "DistillationConfig",
     "PipelineConfig",
+    "QUANTUM_RESERVOIR_PRESET",
+    "TIME_CLASSICAL_RESERVOIR_PRESET",
+    "TIME_QUANTUM_RESERVOIR_PRESET",
     "get_model_preset",
 ]

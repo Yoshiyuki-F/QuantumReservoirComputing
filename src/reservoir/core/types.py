@@ -41,6 +41,8 @@ ArrayResult = JaxF64 | NpF64
 
 @runtime_checkable
 class DataLoaderProtocol(Protocol):
+    X: NpF64 | None
+    y: NpF64 | None
     num_samples: int
     batch_size: int
     def __iter__(self) -> BatchIterator: ...
@@ -53,12 +55,28 @@ class TrainLogs(TypedDict, total=False):
     accuracy: float
     # Add other specific keys as they emerge.
 
-class EvalMetrics(TypedDict, total=False):
-    """Strictly typed evaluation metrics to replace Dict[str, float]."""
+
+def empty_train_logs() -> TrainLogs:
+    """Return an explicitly typed empty training log."""
+    logs: TrainLogs = {}
+    return logs
+
+class RegressionMetrics(TypedDict, total=False):
+    """Scalar regression metrics."""
     mse: float
     mae: float
+
+
+class ClassificationMetrics(TypedDict, total=False):
+    """Scalar classification metrics."""
     accuracy: float
-    # Chaos Metrics
+    precision: float
+    recall: float
+    f1: float
+
+
+class ChaosMetrics(TypedDict, total=False):
+    """Scalar chaos and forecasting metrics."""
     nmse: float
     nrmse: float
     mase: float
@@ -68,7 +86,10 @@ class EvalMetrics(TypedDict, total=False):
     vpt_steps: float 
     vpt_lt: float
     vpt_threshold: float
-    # Add other specific keys as they emerge.
+
+
+class EvalMetrics(RegressionMetrics, ClassificationMetrics, ChaosMetrics, total=False):
+    """Strictly typed evaluation metrics to replace Dict[str, float]."""
 
 class TrainMetrics(EvalMetrics, total=False):
     weight_norms: dict[float, float]
@@ -85,17 +106,9 @@ class TestMetrics(EvalMetrics, total=False):
 # 値になりうる基本型
 PrimitiveValue = str | float | int | bool | None
 
-# ネストを階層的に定義 (L1 -> L2 -> L3)
-# L1: 基本型とそのコレクション
-ConfigL1 = PrimitiveValue | tuple[PrimitiveValue, ...] | list[PrimitiveValue] | dict[str, PrimitiveValue]
-# L2: L1を含むコレクション (DistillationConfigなどで使用)
-ConfigL2 = ConfigL1 | tuple[ConfigL1, ...] | list[ConfigL1] | dict[str, ConfigL1]
-# L3: L2を含むコレクション (将来用)
-ConfigL3 = ConfigL2 | tuple[ConfigL2, ...] | list[ConfigL2] | dict[str, ConfigL2]
-
-# 全ての to_dict() の戻り値
-ConfigDict = dict[str, ConfigL3]
-ConfigValue = ConfigL3
+# Recursive config values for serialization boundaries.
+type ConfigValue = PrimitiveValue | tuple[ConfigValue, ...] | list[ConfigValue] | dict[str, ConfigValue]
+type ConfigDict = dict[str, ConfigValue]
 
 # ==========================================
 # Topology Metadata Types (Model Builder Output)
@@ -193,7 +206,7 @@ def to_jax_f64(x: NpF64) -> JaxF64:
         raise ValueError(f"Inf detected at CPU→GPU boundary! shape={x.shape}")
     ret = jax.device_put(jnp.array(x, dtype=jnp.float64))
     if ret.dtype != jnp.float64:
-        print(f"DEBUG to_jax_f64: {x.dtype} -> {ret.dtype}, config={jax.config.read('jax_enable_x64')}")
+        print(f"DEBUG to_jax_f64: {x.dtype.name} -> {ret.dtype.name}, config={jax.config.read('jax_enable_x64')}")
     return ret
 
 #takes only JaxF64 and returns NpF64, checks for NaN/Inf, and uses np.asarray to ensure it's on CPU

@@ -50,12 +50,7 @@ class PipelineDataManager:
         self.metadata, raw_split = self._load_dataset()
         
         # --- Step 2 & 3: Frontend Processing ---
-        frontend_ctx = self._process_frontend(raw_split)
-        
-        # Explicitly release raw_split (though extracted method scope handles it mostly)
-        del raw_split
-        
-        return frontend_ctx
+        return self._process_frontend(raw_split)
 
     def _load_dataset(self) -> tuple[DatasetMetadata, SplitDataset]:
         """Step 1: Resolve presets and load dataset without mutating inputs later."""
@@ -73,7 +68,7 @@ class PipelineDataManager:
         self._log_dataset_stats(dataset_split, "1")
 
         # User Request: Use full 3D shape (Batch, Time, Feature) for topology logging
-        input_shape = dataset_split.train_X.shape if dataset_split.train_X is not None else ()
+        input_shape = dataset_split.train_X.shape
 
         metadata = DatasetMetadata(
             dataset=dataset_enum,
@@ -90,9 +85,11 @@ class PipelineDataManager:
         Step 2 Apply preprocessing.
         """
         print("\n[datamanager.py] === Step 2: Preprocessing ===")
+        metadata = self.metadata
+        if metadata is None:
+            raise RuntimeError("Dataset metadata must be initialized before frontend processing.")
         preprocessing_config = self.config.preprocess
-        if preprocessing_config is not None:
-            print(f"[data_manager.py] {preprocessing_config}")
+        print(f"[data_manager.py] Preprocessing: {preprocessing_config.label}")
         
         # Factory dispatch on config type
         preprocessor = create_preprocessor(preprocessing_config)
@@ -108,18 +105,18 @@ class PipelineDataManager:
             train_X = preprocessor.fit_transform(train_X)
             if val_X is not None:
                 val_X = preprocessor.transform(val_X)
-            if test_X is not None:
-                test_X = preprocessor.transform(test_X)
+            test_X = preprocessor.transform(test_X)
                 
             # For Regression, targets (y) should also be scaled if they share the domain (Auto-Regression)
-            if not (self.metadata.classification if self.metadata else False):
-                 # Note: use transform to reuse fitted parameters
-                 if data_split.train_y is not None:
-                     data_split = replace(data_split, train_y=preprocessor.transform(data_split.train_y))
-                 if data_split.val_y is not None:
-                     data_split = replace(data_split, val_y=preprocessor.transform(data_split.val_y))
-                 if data_split.test_y is not None:
-                     data_split = replace(data_split, test_y=preprocessor.transform(data_split.test_y))
+            if not metadata.classification:
+                # Note: use transform to reuse fitted parameters
+                train_y = data_split.train_y
+                val_y = data_split.val_y
+                test_y = data_split.test_y
+                data_split = replace(data_split, train_y=preprocessor.transform(train_y))
+                if val_y is not None:
+                    data_split = replace(data_split, val_y=preprocessor.transform(val_y))
+                data_split = replace(data_split, test_y=preprocessor.transform(test_y))
 
         # Re-package for stats logging
         preprocessed_split = replace(data_split, train_X=train_X, val_X=val_X, test_X=test_X)
@@ -171,15 +168,14 @@ class PipelineDataManager:
     def _log_dataset_stats(dataset: SplitDataset, stage: str):
         """Centralized stats logging."""
         print_feature_stats(dataset.train_X, "data_manager.py", f"{stage}:X:train")
-        if dataset.train_y is not None:
-             print_feature_stats(dataset.train_y,"data_manager.py",  f"{stage}:y:train")
-             
-        if dataset.val_X is not None:
-            print_feature_stats(dataset.val_X,"data_manager.py",  f"{stage}:X:val")
-            if dataset.val_y is not None:
-                print_feature_stats(dataset.val_y,"data_manager.py",  f"{stage}:y:val")
-                
-        if dataset.test_X is not None:
-            print_feature_stats(dataset.test_X,"data_manager.py",  f"{stage}:X:test")
-            if dataset.test_y is not None:
-                print_feature_stats(dataset.test_y,"data_manager.py",  f"{stage}:y:test")
+        print_feature_stats(dataset.train_y, "data_manager.py", f"{stage}:y:train")
+
+        val_X = dataset.val_X
+        val_y = dataset.val_y
+        if val_X is not None:
+            print_feature_stats(val_X, "data_manager.py", f"{stage}:X:val")
+            if val_y is not None:
+                print_feature_stats(val_y, "data_manager.py", f"{stage}:y:val")
+
+        print_feature_stats(dataset.test_X, "data_manager.py", f"{stage}:X:test")
+        print_feature_stats(dataset.test_y, "data_manager.py", f"{stage}:y:test")

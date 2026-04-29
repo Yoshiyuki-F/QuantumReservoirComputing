@@ -8,7 +8,7 @@ from reservoir.readout.factory import ReadoutFactory
 if TYPE_CHECKING:
     from reservoir.layers.adapters import Adapter
     from reservoir.models.presets import PipelineConfig
-    from reservoir.core.types import TopologyMeta, ShapesMeta, DetailsMeta
+    from reservoir.core.types import DetailsMeta, ShapesMeta, TopologyMeta
 
 
 class PipelineModelBuilder:
@@ -47,9 +47,14 @@ class PipelineModelBuilder:
         )
 
         # 4. Build Topology Metadata
-        topo_meta: TopologyMeta = model.get_topology_meta() or {}
+        topo_meta: TopologyMeta = model.get_topology_meta()
 
-        shapes_meta: ShapesMeta = topo_meta.get("shapes") or {}
+        shapes_meta: ShapesMeta
+        existing_shapes = topo_meta.get("shapes")
+        if existing_shapes is None:
+            shapes_meta = {}
+        else:
+            shapes_meta = existing_shapes
         shapes_meta["input"] = dataset_meta.input_shape
         shapes_meta["preprocessed"] = frontend_ctx.preprocessed_shape
         shapes_meta["projected"] = frontend_ctx.projected_shape
@@ -57,7 +62,12 @@ class PipelineModelBuilder:
             shapes_meta["output"] = (meta_n_outputs,)
         topo_meta["shapes"] = shapes_meta
 
-        details_meta: DetailsMeta = topo_meta.get("details") or {}
+        details_meta: DetailsMeta
+        existing_details = topo_meta.get("details")
+        if existing_details is None:
+            details_meta = {}
+        else:
+            details_meta = existing_details
         details_meta["preprocess"] = type(frontend_ctx.preprocessor).__name__ if frontend_ctx.preprocessor else None
         topo_meta["details"] = details_meta
         

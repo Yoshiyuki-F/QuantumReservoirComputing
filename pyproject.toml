@@ -28,6 +28,7 @@ mnist = [
 ]
 quantum-extra = [
     "qiskit",
+    "scipy",
 ]
 hpo = [
     "optuna",
@@ -47,10 +48,13 @@ dev = [
     "pandas",
     "pandas-stubs",
     "qiskit",
+    "scipy",
     "optuna",
     "optuna-dashboard",
     "ipykernel",
     "types-tqdm",
+    "pytest",
+    "pyrefly",
 ]
 
 

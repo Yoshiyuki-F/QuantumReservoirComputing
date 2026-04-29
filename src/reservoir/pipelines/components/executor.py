@@ -72,7 +72,7 @@ class PipelineExecutor:
             print(f"    [Executor] Using raw test_y (Length: {len(test_y) if test_y is not None else 0})")
 
         # Step 7: Fit Readout (Strategy Pattern)
-        readout_name = type(self.stack.readout).__name__ if self.stack.readout else "None"
+        readout_name = self.stack.readout.__class__.__name__ if self.stack.readout else "None"
         print(f"\n=== Step 7: Readout ({readout_name}) with val data ===")
         
         strategy = ReadoutStrategyFactory.create_strategy(
@@ -130,11 +130,12 @@ class PipelineExecutor:
              except (ValueError, RuntimeError, TypeError) as e:
                  print(f"[executor.py] Failed to capture quantum trace: {e}")
 
-        return cast("ResultDict", {
+        result: ResultDict = {
             "fit_result": fit_result,
             "train_logs": train_logs,
             "quantum_trace": quantum_trace,
-        })
+        }
+        return result
 
     def _extract_all_features(self, model: ClosedLoopModel) \
             -> tuple[NpF64 | None, NpF64 | None, NpF64 | None, tuple[ModelState | None, JaxF64 | None] | None]:
@@ -187,14 +188,13 @@ class PipelineExecutor:
             return outputs_np, None, None
 
         current_state: ModelState | None = None
-        warmup_X = None
         if is_stateful:
-            warmup_X, current_state, _ = process_split("warmup", initial_state=current_state, return_state=is_stateful)
-            if warmup_X is not None:
-                if jnp.std(warmup_X) < 0.1 and not self.dataset_meta.classification:
-                    raise ValueError(f"Feature collapse detected! warmup_X std ({jnp.std(warmup_X):.4f}) < 0.1. "
+            warmup_features, current_state, _ = process_split("warmup", initial_state=current_state, return_state=is_stateful)
+            if warmup_features is not None:
+                warmup_std = float(jnp.std(warmup_features))
+                if warmup_std < 0.1 and not self.dataset_meta.classification:
+                    raise ValueError(f"Feature collapse detected! warmup_X std ({warmup_std:.4f}) < 0.1. "
                                      "This usually indicates the Reservoir state is saturated or not responding to input.")
-            del warmup_X
 
         # 1. Train
         train_Z, current_state, _ = process_split("train", initial_state=current_state, return_state=is_stateful)
@@ -203,8 +203,9 @@ class PipelineExecutor:
         val_Z, current_state, val_last_output = process_split("val", initial_state=current_state, return_state=is_stateful)
 
         if val_Z is not None:
-            if jnp.std(val_Z) < 0.1:
-                 print(f"    [Warning] val_Z std ({jnp.std(val_Z):.4f}) is very low.")
+            val_std = float(jnp.std(val_Z))
+            if val_std < 0.1:
+                 print(f"    [Warning] val_Z std ({val_std:.4f}) is very low.")
 
         val_final_state = current_state
 
@@ -218,8 +219,9 @@ class PipelineExecutor:
             test_Z, _, _ = process_split("test", initial_state=None, return_state=False)
 
             if test_Z is not None:
-                if jnp.std(test_Z) < 0.1:
-                    print(f"    [Warning] test_Z std ({jnp.std(test_Z):.4f}) is very low.")
+                test_std = float(jnp.std(test_Z))
+                if test_std < 0.1:
+                    print(f"    [Warning] test_Z std ({test_std:.4f}) is very low.")
         else:
             print("    [Executor] Skipping Test feature extraction for Regression task (Closed-loop will be used).")
             

@@ -28,7 +28,7 @@ class PassthroughModel(ClosedLoopGenerativeModel[JaxF64]):
 
     def __init__(self, aggregation_mode: AggregationMode) -> None:
         if not isinstance(aggregation_mode, AggregationMode):
-            raise TypeError(f"aggregation_mode must be AggregationMode, got {type(aggregation_mode)}.")
+            raise TypeError(f"aggregation_mode must be AggregationMode, got {aggregation_mode.__class__.__name__}.")
         self.aggregator = create_aggregator(aggregation_mode)
         self.topology_meta: TopologyMeta = {}
         self._n_units: int | None = None  # Set on first forward pass
@@ -41,7 +41,8 @@ class PassthroughModel(ClosedLoopGenerativeModel[JaxF64]):
         projection_layer: Projection | None = None,
     ) -> TrainLogs:
         """No-op: Passthrough has no trainable parameters."""
-        return {}
+        logs: TrainLogs = {}
+        return logs
 
     # ------------------------------------------------------------------ #
     # Stateful Interface (Compatible with Reservoir)                     #

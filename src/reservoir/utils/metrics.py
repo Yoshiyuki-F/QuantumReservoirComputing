@@ -33,8 +33,8 @@ def nmse(y_true: NpF64, y_pred: NpF64) -> float:
     if y_pred.shape != y_true.shape and y_pred.size == y_true.size:
         y_pred = y_pred.reshape(y_true.shape)
 
-    numerator = np.sum((y_true - y_pred) ** 2)
-    denominator = np.sum(y_true ** 2)
+    numerator = float(np.sum((y_true - y_pred) ** 2))
+    denominator = float(np.sum(y_true ** 2))
     
     return float(numerator / denominator) if denominator > 1e-9 else float('inf')
 
@@ -185,9 +185,6 @@ def calculate_chaos_metrics(
     Calculate Chaos prediction metrics (Mackey-Glass, etc).
     Wrapper around detailed metric functions.
     """
-    if y_true is None or y_pred is None:
-        return {}
-        
     # We use flattened arrays for chaos metrics usually
     # Helpers handle flattening internally if needed (MASE, Correlation, VPT)
     # MSE/NMSE handle logic internally using jnp

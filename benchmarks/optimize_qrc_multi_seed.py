@@ -5,6 +5,8 @@ uv run python benchmarks/optimize_qrc_multi_seed.py --dataset mackey_glass
 uv run python benchmarks/optimize_qrc_multi_seed.py --dataset mackey_glass --trials 500 --enqueue-csv benchmarks/filtered_optuna_results.csv
 uv run optuna-dashboard sqlite:////home/yoshi/PycharmProjects/Reservoir/benchmarks/optuna_qrc_nonetype_mean_vpt.db
 """
+from __future__ import annotations
+
 import os
 # Force 64-bit precision before ANY other imports
 os.environ["JAX_ENABLE_X64"] = "True"
@@ -13,6 +15,7 @@ import argparse
 import dataclasses
 import math
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -28,9 +31,16 @@ from reservoir.models.presets import (  # noqa: E402
     DEFAULT_RIDGE_READOUT,
 )
 from reservoir.models.config import (  # noqa: E402
+    ReadoutConfig,
     PolyRidgeReadoutConfig,
+    QuantumReservoirConfig,
 )
 from reservoir.data.identifiers import Dataset  # noqa: E402
+
+if TYPE_CHECKING:
+    from typing import Literal
+
+    from reservoir.core.types import EvalMetrics, ResultDict, TestMetrics, TrainMetrics
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +61,27 @@ READOUT_MAP = {
 VALID_BASES = ("Z", "ZZ", "Z+ZZ")
 
 
+def _parse_measurement_basis(value: str) -> Literal["Z", "ZZ", "Z+ZZ"]:
+    if value == "Z":
+        return "Z"
+    if value == "ZZ":
+        return "ZZ"
+    if value == "Z+ZZ":
+        return "Z+ZZ"
+    raise ValueError(f"Unknown measurement basis: {value}")
+
+
+def _require_n_qubits(n_qubits: int | None, preset_name: str) -> int:
+    if n_qubits is None:
+        raise ValueError(f"{preset_name}.model.n_qubits must be set for benchmark naming")
+    return n_qubits
+
+
+def _set_trial_float_attr(trial: optuna.Trial, key: str, value: float | None) -> None:
+    if value is not None:
+        trial.set_user_attr(key, float(value))
+
+
 def build_config(
         scale: float,
         relative_shift: float,
@@ -61,8 +92,8 @@ def build_config(
         use_reuploading: bool,
         seed: int,
         *,
-        measurement_basis: str,
-        readout_config,
+        measurement_basis: Literal["Z", "ZZ", "Z+ZZ"],
+        readout_config: ReadoutConfig | None,
 ):
     """
     Build a PipelineConfig with dynamically updated parameters.
@@ -72,6 +103,9 @@ def build_config(
     """
     from reservoir.models.config import BoundedAffineScalerConfig
     base = TIME_QUANTUM_RESERVOIR_PRESET
+    base_model = base.model
+    if not isinstance(base_model, QuantumReservoirConfig):
+        raise TypeError("TIME_QUANTUM_RESERVOIR_PRESET.model must be QuantumReservoirConfig")
 
     # Update preprocessing (BoundedAffineScaler)
     new_preprocess = BoundedAffineScalerConfig(
@@ -82,7 +116,7 @@ def build_config(
 
     # Update model (feedback_scale, leak_rate, measurement_basis, seed)
     new_model = dataclasses.replace(
-        base.model,
+        base_model,
         n_layers=n_layers,
         feedback_scale=feedback_scale,
         leak_rate=leak_rate,
@@ -100,7 +134,12 @@ def build_config(
     )
 
 
-def make_objective(measurement_basis: str, readout_config, use_reuploading: bool, dataset_enum: Dataset):
+def make_objective(
+        measurement_basis: Literal["Z", "ZZ", "Z+ZZ"],
+        readout_config: ReadoutConfig | None,
+        use_reuploading: bool,
+        dataset_enum: Dataset,
+):
     """Factory that returns an Optuna objective closed over the study variant."""
 
     def objective(trial: optuna.Trial) -> float:
@@ -123,7 +162,7 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
 
         # === 2. Run Pipeline over multiple seeds ===
         seeds = [40, 41, 42, 43, 44]
-        vpts = []
+        vpts: list[float] = []
         
         print(f"Trial {trial.number}: Starting (scale={scale:.3f}, shift={relative_shift:.3f}, bound={bound:.3f}, fb={feedback_scale:.3f}, lr={leak_rate:.3f})")
 
@@ -142,15 +181,29 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
             )
 
             try:
-                results: dict[str] = run_pipeline(config, dataset_enum)
+                results: ResultDict = run_pipeline(config, dataset_enum)
 
-                test_results = results.get("test", {})
-                val_results = results.get("validation", {}) # Reporter uses "validation"
-                train_results = results.get("train", {})
-                
-                test_chaos = test_results.get("chaos_metrics", {})
-                # For validation, metrics are flat in val_results due to Strategy logic
-                val_chaos = val_results
+                test_results_raw = results.get("test")
+                if test_results_raw is None:
+                    test_results: TestMetrics = {}
+                else:
+                    test_results = test_results_raw
+                val_results_raw = results.get("validation")
+                if val_results_raw is None:
+                    val_results: EvalMetrics = {}
+                else:
+                    val_results = val_results_raw
+                train_results_raw = results.get("train")
+                if train_results_raw is None:
+                    train_results: TrainMetrics = {}
+                else:
+                    train_results = train_results_raw
+
+                test_chaos_raw = test_results.get("chaos_metrics")
+                if test_chaos_raw is None:
+                    test_chaos: dict[str, float] = {}
+                else:
+                    test_chaos = test_chaos_raw
 
                 vpt_lt = test_results.get("vpt_lt", 0.0)
                 val_vpt_lt = val_results.get("vpt_lt", 0.0)
@@ -166,11 +219,15 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
                         trial.set_user_attr(f"{key}_seed{seed}", float(val))
 
                 # Store VALIDATION chaos metrics per seed (prefix with val_)
-                for key in ["mse", "nmse", "nrmse", "mase", "ndei",
-                            "var_ratio", "correlation", "vpt_steps", "vpt_lt"]:
-                    val = val_chaos.get(key, None)
-                    if val is not None:
-                        trial.set_user_attr(f"val_{key}_seed{seed}", float(val))
+                _set_trial_float_attr(trial, f"val_mse_seed{seed}", val_results.get("mse"))
+                _set_trial_float_attr(trial, f"val_nmse_seed{seed}", val_results.get("nmse"))
+                _set_trial_float_attr(trial, f"val_nrmse_seed{seed}", val_results.get("nrmse"))
+                _set_trial_float_attr(trial, f"val_mase_seed{seed}", val_results.get("mase"))
+                _set_trial_float_attr(trial, f"val_ndei_seed{seed}", val_results.get("ndei"))
+                _set_trial_float_attr(trial, f"val_var_ratio_seed{seed}", val_results.get("var_ratio"))
+                _set_trial_float_attr(trial, f"val_correlation_seed{seed}", val_results.get("correlation"))
+                _set_trial_float_attr(trial, f"val_vpt_steps_seed{seed}", val_results.get("vpt_steps"))
+                _set_trial_float_attr(trial, f"val_vpt_lt_seed{seed}", val_results.get("vpt_lt"))
 
                 if vpt_lt is None or math.isnan(vpt_lt) or vpt_lt <= 0:
                     print(f"    Seed {seed}: FAILED (VPT=0). Failing early.")
@@ -232,7 +289,15 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
     return objective
 
 
-def derive_names(dataset_enum: Dataset, measurement_basis: str, readout_key: str, proj_type: str, n_qubits: int, scaler_type: str, use_reuploading: bool):
+def derive_names(
+        dataset_enum: Dataset,
+        measurement_basis: Literal["Z", "ZZ", "Z+ZZ"],
+        readout_key: str,
+        proj_type: str,
+        n_qubits: int,
+        scaler_type: str,
+        use_reuploading: bool,
+):
     """Derive DB filename and study name from the variant combination."""
     reupload_str = "reupTrue" if use_reuploading else "reupFalse"
     dataset_str = dataset_enum.value
@@ -278,18 +343,21 @@ def main():
 
     # --- Resolve variant from args or preset defaults ---
     base = TIME_QUANTUM_RESERVOIR_PRESET
+    base_model = base.model
+    if not isinstance(base_model, QuantumReservoirConfig):
+        raise TypeError("TIME_QUANTUM_RESERVOIR_PRESET.model must be QuantumReservoirConfig")
 
     # Measurement basis
     if args.measurement_basis is not None:
-        measurement_basis = args.measurement_basis
+        measurement_basis = _parse_measurement_basis(args.measurement_basis)
     else:
-        measurement_basis = base.model.measurement_basis
+        measurement_basis = base_model.measurement_basis
     
     # Qubits
-    n_qubits = base.model.n_qubits
+    n_qubits = _require_n_qubits(base_model.n_qubits, "TIME_QUANTUM_RESERVOIR_PRESET")
 
     # Re-uploading
-    use_reuploading = base.model.use_reuploading
+    use_reuploading = base_model.use_reuploading
 
     # Readout
     if args.readout is not None:
@@ -350,7 +418,7 @@ def main():
                 reader = csv.DictReader(f)
                 count = 0
                 for row in reader:
-                    params = {}
+                    params: dict[str, float | int] = {}
                     for k, v in row.items():
                         if k.startswith('params_'):
                             param_name = k.replace('params_', '')

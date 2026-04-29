@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+# noinspection PyPackageRequirements
 import tensorcircuit as tc
 
 # --- Lazy Initialization for Safety & Isolation ---

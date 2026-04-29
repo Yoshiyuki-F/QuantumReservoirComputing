@@ -16,11 +16,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 import jax.numpy as jnp
 
-from reservoir.readout.ridge import RidgeCV
+from reservoir.readout.ridge import RidgeCV, RidgeRegression
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from reservoir.core.types import JaxF64, ConfigDict
 
+
+type PolyRidgeValidationResult = tuple[
+    float,
+    float,
+    dict[float, float],
+    dict[float, float],
+    dict[float, JaxF64],
+]
 
 
 class PolyRidgeReadout(RidgeCV):
@@ -34,10 +44,10 @@ class PolyRidgeReadout(RidgeCV):
     def __init__(
         self,
         lambda_candidates: tuple[float, ...],
-        use_intercept: bool,
         degree: int,
         mode: Literal["full", "square_only", "interaction_only"],
-        norm_threshold: float | None
+        use_intercept: bool = True,
+        norm_threshold: float | None = 100.0
     ) -> None:
         super().__init__(lambda_candidates=lambda_candidates, use_intercept=use_intercept, norm_threshold=norm_threshold)
         self.degree = degree
@@ -67,7 +77,8 @@ class PolyRidgeReadout(RidgeCV):
             parts.append(X ** k)
         return jnp.concatenate(parts, axis=-1)
 
-    def _expand_full(self, X: JaxF64) -> JaxF64:
+    @staticmethod
+    def _expand_full(X: JaxF64) -> JaxF64:
         """Pure-JAX full polynomial expansion (degree=2).
 
         Produces: [original features] + [x_i * x_j for i <= j]
@@ -81,7 +92,8 @@ class PolyRidgeReadout(RidgeCV):
 
         return jnp.concatenate([X, cross_terms], axis=-1)
 
-    def _expand_interaction_only(self, X: JaxF64) -> JaxF64:
+    @staticmethod
+    def _expand_interaction_only(X: JaxF64) -> JaxF64:
         """Pure-JAX interaction-only polynomial expansion (degree=2).
 
         Produces: [original features] + [x_i * x_j for i < j] (no self-squared terms).
@@ -114,6 +126,47 @@ class PolyRidgeReadout(RidgeCV):
         """Expand features, then delegate to RidgeCV.predict."""
         X_expanded = self._expand_features(states)
         return super().predict(X_expanded)
+
+    def fit_with_validation(
+        self,
+        train_Z: JaxF64,
+        train_y: JaxF64,
+        val_Z: JaxF64,
+        val_y: JaxF64,
+        scoring_fn: Callable[[JaxF64, JaxF64], float],
+        maximize_score: bool,
+    ) -> PolyRidgeValidationResult:
+        """Search lambda candidates on expanded features and keep the best model."""
+        train_expanded = self._expand_features(train_Z)
+        val_expanded = self._expand_features(val_Z)
+        search_history: dict[float, float] = {}
+        weight_norms: dict[float, float] = {}
+        residuals_history: dict[float, JaxF64] = {}
+
+        best_lambda = self.lambda_candidates[0]
+        best_score = float("-inf") if maximize_score else float("inf")
+        best_model: RidgeRegression | None = None
+
+        for lam in self.lambda_candidates:
+            lam_value = float(lam)
+            candidate = RidgeRegression(lam_value, self.use_intercept).fit(train_expanded, train_y)
+            pred = candidate.predict(val_expanded)
+            score = float(scoring_fn(pred, val_y))
+            search_history[lam_value] = score
+            residuals_history[lam_value] = (pred - val_y) ** 2
+
+            coef = candidate.coef_
+            weight_norms[lam_value] = float(jnp.linalg.norm(coef)) if coef is not None else 0.0
+            is_better = score > best_score if maximize_score else score < best_score
+            if is_better:
+                best_lambda = lam_value
+                best_score = score
+                best_model = candidate
+
+        if best_model is None:
+            best_model = RidgeRegression(best_lambda, self.use_intercept).fit(train_expanded, train_y)
+        self.best_model = best_model
+        return best_lambda, best_score, search_history, weight_norms, residuals_history
 
     # ------------------------------------------------------------------
     # Serialisation

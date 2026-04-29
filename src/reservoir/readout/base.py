@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 class ReadoutModule(ABC):
     """Abstract base for readout components (e.g., ridge regression, FNN)."""
 
+    hidden_layers: tuple[int, ...] | None = None
+
     @abstractmethod
     def fit(self, states: JaxF64, targets: JaxF64) -> ReadoutModule:
         """Fit the readout on reservoir states and target labels."""

@@ -19,6 +19,9 @@ def slice_with_list(fb):
 slice_with_jnp(fb_unitaries)
 slice_with_list(fb_unitaries)
 
+res1 = slice_with_jnp(fb_unitaries)
+res2 = slice_with_list(fb_unitaries)
+
 t0 = time.time()
 for _ in range(10000):
     res1 = slice_with_jnp(fb_unitaries)

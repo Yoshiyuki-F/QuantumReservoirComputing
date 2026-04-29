@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import numpy as np
 from typing import TYPE_CHECKING
+from reservoir.utils.metrics import vpt_score
 
 if TYPE_CHECKING:
-    from reservoir.core.types import NpF64, ResultDict, TrainLogs, EvalMetrics, FitResultDict, TestMetrics, TopologyMeta
+    from reservoir.core.types import NpF64, ResultDict, TrainLogs, EvalMetrics, FitResultDict, TestMetrics, TopologyMeta, TrainMetrics
     from reservoir.models.generative import ClosedLoopModel
-    from reservoir.models.presets import PipelineConfig
+    from reservoir.models.config import PipelineConfig
     from reservoir.data.config import DatasetPreset
     from reservoir.training.config import TrainingConfig
     from reservoir.readout.base import ReadoutModule
@@ -89,7 +90,7 @@ def print_feature_stats(features: NpF64, file:str, stage: str, backend: str = "n
     # 基本統計量
     stats = {
         "shape": features.shape,
-        "dtype": f"{backend}.{features.dtype}",
+        "dtype": f"{backend}.{features.dtype.name}",
         "mean": float(np.mean(features)),
         "std": float(np.std(features)),
         "min": float(np.min(features)),
@@ -107,18 +108,24 @@ def print_feature_stats(features: NpF64, file:str, stage: str, backend: str = "n
 
 
 def print_ridge_search_results(train_res: FitResultDict, metric_name: str = "MSE") -> None:
-    history = train_res.get("search_history")
-    if not history:
+    history_raw = train_res.get("search_history")
+    if history_raw is None or len(history_raw) == 0:
         return
+    history: dict[float, float] = history_raw
     best_lam = train_res.get("best_lambda")
     
-    weight_norms = train_res.get("weight_norms") or {}
+    weight_norms_raw = train_res.get("weight_norms")
+    weight_norms: dict[float, float]
+    if weight_norms_raw is None:
+        weight_norms = {}
+    else:
+        weight_norms = weight_norms_raw
     
     metric_label = metric_name
 
     # Decide best logic for marking
     # Both minimize score internally (MSE is min, -VPT is min)
-    best_by_metric = min(history.keys(), key=lambda k: float(history[k]))
+    best_by_metric = min(history.items(), key=lambda item: float(item[1]))[0]
 
     best_marker = best_lam if best_lam is not None else best_by_metric
 
@@ -282,6 +289,7 @@ def get_preprocess_label(topo_meta: TopologyMeta, config: PipelineConfig | None)
 
 
 def get_projection_label(config: PipelineConfig, topo_meta: TopologyMeta) -> str | None:
+    _ = topo_meta
     if not hasattr(config, 'projection') or config.projection is None:
         return None
 
@@ -325,9 +333,11 @@ def infer_filename_parts(topo_meta: TopologyMeta, training_obj: TrainingConfig, 
             filename_parts.append(proj_lbl)
 
     # 4. Readout
-    if config is not None and hasattr(config, 'readout') and config.readout is not None and hasattr(config.readout, 'label'):
-        readout_lbl = config.readout.label
-        if hasattr(config.readout, 'hidden_layers') and config.readout.hidden_layers is not None:
+    if config is not None and config.readout is not None:
+        readout_config = config.readout
+        readout_lbl = getattr(readout_config, "label", readout_config.__class__.__name__)
+        readout_hidden_layers = getattr(readout_config, "hidden_layers", None)
+        if readout_hidden_layers is not None:
             lr = float(getattr(training_obj, 'learning_rate', 0.0)) if training_obj else 0.0
             if lr > 0:
                 filename_parts.append(f"{readout_lbl}_LR{lr:.0e}")
@@ -336,9 +346,10 @@ def infer_filename_parts(topo_meta: TopologyMeta, training_obj: TrainingConfig, 
         else:
             filename_parts.append(readout_lbl)
     elif readout is not None:
-        readout_type = type(readout).__name__
-        if hasattr(readout, 'hidden_layers') and readout.hidden_layers:
-            layers_str = "-".join(str(int(v)) for v in readout.hidden_layers)
+        readout_type = readout.__class__.__name__
+        hidden_layers = readout.hidden_layers
+        if hidden_layers:
+            layers_str = "-".join(str(int(v)) for v in hidden_layers)
             lr = float(getattr(training_obj, 'learning_rate', 0.0)) if training_obj else 0.0
             if lr > 0:
                 filename_parts.append(f"{readout_type}{layers_str}_LR{lr:.0e}")
@@ -415,14 +426,24 @@ def _plot_classification_section(
     filename_parts = infer_filename_parts(topo_meta, training_obj, model_type_str, readout, config)
     confusion_filename = f"outputs/{dataset_name}/{'_'.join(filename_parts)}_confusion.png"
     
-    train_res = results.get("train", {})
+    train_res_raw = results.get("train")
+    train_res: TrainMetrics
+    if train_res_raw is None:
+        train_res = {}
+    else:
+        train_res = train_res_raw
     selected_lambda = None
     lam_val = train_res.get("best_lambda")
     if lam_val is not None:
         selected_lambda = float(str(lam_val))
 
     # Extract predictions from ResultDict and ensure Host Domain (NpF64)
-    outputs = results.get("outputs") or {}
+    outputs_raw = results.get("outputs")
+    outputs: dict[str, NpF64 | None]
+    if outputs_raw is None:
+        outputs = {}
+    else:
+        outputs = outputs_raw
     train_pred_raw = outputs.get("train_pred")
     test_pred_raw = outputs.get("test_pred")
     val_pred_raw = outputs.get("val_pred")
@@ -473,7 +494,12 @@ def _plot_regression_section(
     is_closed_loop = bool(results.get("is_closed_loop", False))
 
     # Extract predictions from ResultDict and ensure Host Domain (NpF64)
-    outputs = results.get("outputs") or {}
+    outputs_raw = results.get("outputs")
+    outputs: dict[str, NpF64 | None]
+    if outputs_raw is None:
+        outputs = {}
+    else:
+        outputs = outputs_raw
     test_pred_raw = outputs.get("test_pred")
 
     test_p = test_pred_raw
@@ -509,7 +535,7 @@ def _plot_regression_section(
 
 
 def plot_ridgecv_intermediates(
-    residuals_hist: dict[float, np.ndarray] | None,
+    residuals_hist: dict[float, NpF64] | None,
     weight_norms: dict[float, float] | None,
     best_lambda: float | None,
     best_score: float,
@@ -560,7 +586,9 @@ def plot_ridgecv_intermediates(
             val_y_raw = _inv(val_y)
             val_p_raw = _inv(val_pred_np)
             
-            best_norm = weight_norms.get(best_lambda, 0.0) if weight_norms and best_lambda is not None else 0.0
+            best_norm = 0.0
+            if weight_norms is not None and best_lambda is not None:
+                best_norm = float(weight_norms.get(best_lambda, 0.0))
             
             plot_timeseries_comparison(
                 targets=val_y_raw,
@@ -669,16 +697,11 @@ def plot_regression_report(
     # Calculate VPT using shared metric function
     vpt_lt = None
     if dt is not None and lyapunov_time_unit is not None and test_y is not None and test_pred is not None:
-        try:
-            from reservoir.utils.metrics import vpt_score
-            # vpt_score handles multivariate logic correctly (Euclidean norm)
-            # It expects (Time, Features), which we have as test_y and test_pred (already inverse transformed)
-            vpt_steps = vpt_score(test_y, test_pred, threshold=vpt_threshold)
-            
-            steps_per_lt = int(lyapunov_time_unit / dt) if dt > 0 else 1
-            vpt_lt = float(vpt_steps) / steps_per_lt if steps_per_lt > 0 else 0.0
-        except ImportError:
-            pass
+        # vpt_score handles multivariate logic correctly (Euclidean norm).
+        # It expects (Time, Features), which we have after inverse transform.
+        vpt_steps = vpt_score(test_y, test_pred, threshold=vpt_threshold)
+        steps_per_lt = int(lyapunov_time_unit / dt) if dt > 0 else 1
+        vpt_lt = float(vpt_steps) / steps_per_lt if steps_per_lt > 0 else 0.0
 
     # Display VPT if calculated, otherwise fallback to MSE
     if vpt_lt is not None:

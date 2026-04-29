@@ -26,7 +26,7 @@ class PassthroughFactory:
         """Create passthrough model - only needs aggregation mode from config."""
         model_config = pipeline_config.model
         if not isinstance(model_config, PassthroughConfig):
-            raise TypeError(f"PassthroughFactory requires PassthroughConfig, got {type(model_config)}.")
+            raise TypeError(f"PassthroughFactory requires PassthroughConfig, got {model_config.__class__.__name__}.")
 
         # Create model with just aggregation mode
         model = PassthroughModel(aggregation_mode=model_config.aggregation)

@@ -1,14 +1,26 @@
 """/home/yoshi/PycharmProjects/Reservoir/src/reservoir/utils/gpu_utils.py
 Reservoir Computing用のGPUユーティリティ関数。
 """
+from __future__ import annotations
+
 import re
-import shutil
 import subprocess
-from typing import TYPE_CHECKING
+from typing import Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from jax import Device
+    from collections.abc import Callable, Sequence
+
+
+class JaxDeviceLike(Protocol):
+    """Minimal JAX device surface used by this module."""
+    id: int
+    platform: str
+    device_kind: str
+
+
+def _device_text(device: JaxDeviceLike) -> str:
+    return f"{device.platform}:{device.device_kind}:{device.id}"
+
 
 def _assert_x64_enabled() -> None:
     """Raise if JAX x64 mode is not enabled."""
@@ -17,12 +29,12 @@ def _assert_x64_enabled() -> None:
         raise ValueError("CRITICAL: JAX x64 mode is NOT enabled. Double-check import order and environment variables.")
 
 
-def _assert_gpu_detected(gpu_devices: list[Device], devices: list[Device]) -> None:
+def _assert_gpu_detected(gpu_devices: Sequence[JaxDeviceLike], devices: Sequence[JaxDeviceLike]) -> None:
     """Raise if no GPU devices are found."""
     if not gpu_devices:
         print("ERROR: GPU not detected!")
-        print("Available devices:", devices)
-        if devices and all('cpu' in str(d).lower() for d in devices):
+        print("Available devices:", [_device_text(d) for d in devices])
+        if devices and all(d.platform.lower() == "cpu" for d in devices):
             print("Only CPU devices detected - GPU initialization failed")
         raise RuntimeError(
             "GPU not detected. This is a GPU-required test.\n"
@@ -61,14 +73,14 @@ def check_gpu_available() -> bool:
         print(f"JAXバージョン: {jax.__version__}")
 
         # GPU利用可能性チェック
-        gpu_devices = [d for d in devices if 'gpu' in str(d).lower() or 'cuda' in str(d).lower()]
+        gpu_devices = [d for d in devices if d.platform.lower() == "gpu" or d.platform.lower() == "cuda"]
         _assert_gpu_detected(gpu_devices, devices)
 
         # 簡単なGPU計算テスト
         try:
             # Force float64 creation to test if it's respected
             x = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=jnp.float64)
-            print(f"Test Array Dtype: {x.dtype}")
+            print(f"Test Array Dtype: {x.dtype.name}")
             
             if x.dtype != jnp.float64:
                  print("WARNING: JAX did not create float64 array despite request. x64 mode might be failed.")
@@ -82,36 +94,35 @@ def check_gpu_available() -> bool:
             nvcc_version = None
             try:
                 # nvidia-mlまたはpynvmlを使ってGPU名とバージョン情報を取得
+                # GPU名
+                nvidia_smi_output = subprocess.check_output(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader,nounits"],
+                    text=True,
+                ).strip().split('\n')[0]
+                device_name = nvidia_smi_output
 
-                if shutil.which("nvidia-smi"):
-                    # GPU名
-                    nvidia_smi_output = subprocess.check_output(
-                        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader,nounits"],
-                        universal_newlines=True
-                    ).strip().split('\n')[0]
-                    device_name = nvidia_smi_output
+                # Driver / CUDA version を取得
+                smi_full_output = subprocess.check_output(
+                    ["nvidia-smi"],
+                    text=True,
+                )
+                version_match = re.search(
+                    r"Driver Version:\s*([\d.]+)\s+CUDA Version:\s*([\d.]+)",
+                    smi_full_output
+                )
+                if version_match:
+                    driver_version, cuda_version = version_match.groups()
 
-                    # Driver / CUDA version を取得
-                    smi_full_output = subprocess.check_output(
-                        ["nvidia-smi"],
-                        universal_newlines=True
+                try:
+                    nvcc_output = subprocess.check_output(
+                        ["nvcc", "--version"],
+                        text=True,
                     )
-                    version_match = re.search(
-                        r"Driver Version:\s*([\d.]+)\s+CUDA Version:\s*([\d.]+)",
-                        smi_full_output
-                    )
-                    if version_match:
-                        driver_version, cuda_version = version_match.groups()
-                    if shutil.which("nvcc"):
-                        nvcc_output = subprocess.check_output(
-                            ["nvcc", "--version"],
-                            universal_newlines=True
-                        )
-                        nvcc_match = re.search(r"release\s+([\d.]+)", nvcc_output)
-                        if nvcc_match:
-                            nvcc_version = nvcc_match.group(1)
-                else:
-                    device_name = f"CUDA Device {device.id}"
+                    nvcc_match = re.search(r"release\s+([\d.]+)", nvcc_output)
+                    if nvcc_match:
+                        nvcc_version = nvcc_match.group(1)
+                except (OSError, subprocess.SubprocessError):
+                    nvcc_version = None
             except (OSError, subprocess.SubprocessError):
                 # nvidia-smiが失敗した場合はデバイスIDのみ表示
                 device_name = f"CUDA Device {device.id}"
@@ -181,7 +192,7 @@ def print_gpu_info() -> None:
     
     try:
         devices = jax.devices()
-        gpu_devices = [d for d in devices if 'gpu' in str(d).lower() or 'cuda' in str(d).lower()]
+        gpu_devices = [d for d in devices if d.platform.lower() == "gpu" or d.platform.lower() == "cuda"]
         
         if gpu_devices:
             print(f"Using GPU: {gpu_devices[0]}")

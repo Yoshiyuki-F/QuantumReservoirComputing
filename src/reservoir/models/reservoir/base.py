@@ -31,7 +31,7 @@ class Reservoir[StateT](ClosedLoopGenerativeModel[StateT], ABC):
              raise ValueError(f"leak_rate must be in (0,1], got {self.leak_rate}")
 
         if not isinstance(aggregation_mode, AggregationMode):
-            raise TypeError(f"aggregation_mode must be AggregationMode, got {type(aggregation_mode)}.")
+            raise TypeError(f"aggregation_mode must be AggregationMode, got {aggregation_mode.__class__.__name__}.")
             
         self.aggregator = create_aggregator(aggregation_mode)
 

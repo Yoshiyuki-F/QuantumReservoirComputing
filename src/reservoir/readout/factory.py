@@ -13,6 +13,13 @@ if TYPE_CHECKING:
     from reservoir.training.config import TrainingConfig
     from reservoir.readout.base import ReadoutModule
 
+
+def _lambda_candidates_or_default(candidates: tuple[float, ...] | None) -> tuple[float, ...]:
+    if candidates is None:
+        return (1e-6,)
+    return candidates
+
+
 class ReadoutFactory:
     """Builds readout modules from ReadoutConfig."""
 
@@ -28,11 +35,7 @@ class ReadoutFactory:
 
         # PolyRidgeの場合 (must check before RidgeReadoutConfig)
         if isinstance(config, PolyRidgeReadoutConfig):
-            candidates = config.lambda_candidates
-            if candidates is None:
-                candidates = getattr(config, "init_lambda", (1e-6,))
-                if type(candidates) is float:
-                    candidates = (candidates,)
+            candidates = _lambda_candidates_or_default(config.lambda_candidates)
             return PolyRidgeReadout(
                 use_intercept=config.use_intercept,
                 lambda_candidates=candidates,
@@ -43,11 +46,7 @@ class ReadoutFactory:
 
         # Ridgeの場合
         if isinstance(config, RidgeReadoutConfig):
-            candidates = config.lambda_candidates
-            if candidates is None:
-                candidates = getattr(config, "init_lambda", (1e-6,))
-                if type(candidates) is float:
-                    candidates = (candidates,)
+            candidates = _lambda_candidates_or_default(config.lambda_candidates)
             
             return RidgeCV(
                 use_intercept=config.use_intercept,
@@ -63,6 +62,6 @@ class ReadoutFactory:
                 classification=classification
             )
 
-        raise TypeError(f"ReadoutFactory received unknown config type: {type(config)}")
+        raise TypeError(f"ReadoutFactory received unknown config type: {config.__class__.__name__}")
 
 __all__ = ["ReadoutFactory"]

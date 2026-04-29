@@ -15,6 +15,7 @@ uv run python benchmarks/optimize_qrc_mnist.py --trials 100
 Visualization:
 uv run optuna-dashboard sqlite:////home/yoshi/PycharmProjects/Reservoir/benchmarks/optimize_qrc_mnist.db
 """
+from __future__ import annotations
 
 import os
 # Force 64-bit precision before ANY other imports
@@ -23,6 +24,7 @@ os.environ["JAX_ENABLE_X64"] = "True"
 import argparse
 import dataclasses
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -38,10 +40,17 @@ from reservoir.models.presets import (  # noqa: E402
     DEFAULT_RIDGE_READOUT,
 )
 from reservoir.models.config import (  # noqa: E402
+    ReadoutConfig,
     BoundedAffinePCAConfig,
     PolyRidgeReadoutConfig,
+    QuantumReservoirConfig,
 )
 from reservoir.data.identifiers import Dataset  # noqa: E402
+
+if TYPE_CHECKING:
+    from typing import Literal
+
+    from reservoir.core.types import ResultDict, TestMetrics, TrainMetrics
 
 # ---------------------------------------------------------------------------
 # Readout Map
@@ -61,6 +70,27 @@ READOUT_MAP = {
 VALID_BASES = ("Z", "ZZ", "Z+ZZ")
 
 
+def _parse_measurement_basis(value: str) -> Literal["Z", "ZZ", "Z+ZZ"]:
+    if value == "Z":
+        return "Z"
+    if value == "ZZ":
+        return "ZZ"
+    if value == "Z+ZZ":
+        return "Z+ZZ"
+    raise ValueError(f"Unknown measurement basis: {value}")
+
+
+def _require_n_qubits(n_qubits: int | None, preset_name: str) -> int:
+    if n_qubits is None:
+        raise ValueError(f"{preset_name}.model.n_qubits must be set for benchmark naming")
+    return n_qubits
+
+
+def _set_trial_float_attr(trial: optuna.Trial, key: str, value: float | None) -> None:
+    if value is not None:
+        trial.set_user_attr(key, float(value))
+
+
 def build_config(
         scale: float,
         relative_shift: float,
@@ -68,8 +98,8 @@ def build_config(
         feedback_scale: float,
         leak_rate: float,
         use_reuploading: bool,
-        measurement_basis: str,
-        readout_config,
+        measurement_basis: Literal["Z", "ZZ", "Z+ZZ"],
+        readout_config: ReadoutConfig | None,
 ):
     """
     Build a PipelineConfig with dynamically updated parameters.
@@ -77,6 +107,9 @@ def build_config(
     Projection: BoundedAffinePCA (scale, relative_shift).
     """
     base = QUANTUM_RESERVOIR_PRESET
+    base_model = base.model
+    if not isinstance(base_model, QuantumReservoirConfig):
+        raise TypeError("QUANTUM_RESERVOIR_PRESET.model must be QuantumReservoirConfig")
 
     # Update Projection (BoundedAffinePCA with tuned scale/relative_shift locked to bound=np.pi)
     base_proj = base.projection
@@ -90,7 +123,7 @@ def build_config(
 
     # Update Reservoir (n_layers, feedback_scale, leak_rate, measurement_basis)
     new_model = dataclasses.replace(
-        base.model,
+        base_model,
         n_layers=n_layers,
         feedback_scale=feedback_scale,
         leak_rate=leak_rate,
@@ -107,7 +140,12 @@ def build_config(
     )
 
 
-def make_objective(measurement_basis: str, readout_config, use_reuploading: bool, dataset_enum: Dataset):
+def make_objective(
+        measurement_basis: Literal["Z", "ZZ", "Z+ZZ"],
+        readout_config: ReadoutConfig | None,
+        use_reuploading: bool,
+        dataset_enum: Dataset,
+):
     """Factory that returns an Optuna objective."""
 
     def objective(trial: optuna.Trial) -> float:
@@ -144,11 +182,19 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
 
         # === 3. Run Pipeline ===
         try:
-            results = run_pipeline(config, dataset_enum)
+            results: ResultDict = run_pipeline(config, dataset_enum)
 
             # === 4. Extract Metrics ===
-            test_results = results.get("test", {})
-            train_results = results.get("train", {})
+            test_results_raw = results.get("test")
+            if test_results_raw is None:
+                test_results: TestMetrics = {}
+            else:
+                test_results = test_results_raw
+            train_results_raw = results.get("train")
+            if train_results_raw is None:
+                train_results: TrainMetrics = {}
+            else:
+                train_results = train_results_raw
 
             accuracy = test_results.get("accuracy", 0.0)
             best_lambda = train_results.get("best_lambda", None)
@@ -158,10 +204,10 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
                 trial.set_user_attr("best_lambda", float(best_lambda))
 
             # Store extra metrics
-            for key in ["accuracy", "precision", "recall", "f1"]:
-                val = test_results.get(key, None)
-                if val is not None:
-                    trial.set_user_attr(key, float(val))
+            _set_trial_float_attr(trial, "accuracy", test_results.get("accuracy"))
+            _set_trial_float_attr(trial, "precision", test_results.get("precision"))
+            _set_trial_float_attr(trial, "recall", test_results.get("recall"))
+            _set_trial_float_attr(trial, "f1", test_results.get("f1"))
 
             if accuracy <= 0.11:  # Random guess threshold roughly
                 trial.set_user_attr("status", "low_acc")
@@ -208,7 +254,13 @@ def make_objective(measurement_basis: str, readout_config, use_reuploading: bool
     return objective
 
 
-def derive_names(dataset_name: str, measurement_basis: str, readout_key: str, n_qubits: int, use_reuploading: bool):
+def derive_names(
+        dataset_name: str,
+        measurement_basis: Literal["Z", "ZZ", "Z+ZZ"],
+        readout_key: str,
+        n_qubits: int,
+        use_reuploading: bool,
+):
     """Derive DB filename and study name from the variant combination."""
     reupload_str = "reupTrue" if use_reuploading else "reupFalse"
     
@@ -260,18 +312,21 @@ def main():
 
     # --- Resolve variant from args or preset defaults ---
     base = QUANTUM_RESERVOIR_PRESET
+    base_model = base.model
+    if not isinstance(base_model, QuantumReservoirConfig):
+        raise TypeError("QUANTUM_RESERVOIR_PRESET.model must be QuantumReservoirConfig")
 
     # Measurement basis
     if args.measurement_basis is not None:
-        measurement_basis = args.measurement_basis
+        measurement_basis = _parse_measurement_basis(args.measurement_basis)
     else:
-        measurement_basis = base.model.measurement_basis
+        measurement_basis = base_model.measurement_basis
     
     # Qubits
-    n_qubits = base.model.n_qubits
+    n_qubits = _require_n_qubits(base_model.n_qubits, "QUANTUM_RESERVOIR_PRESET")
 
     # Re-uploading
-    use_reuploading = base.model.use_reuploading
+    use_reuploading = base_model.use_reuploading
 
     # Readout
     if args.readout is not None:

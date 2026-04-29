@@ -3,33 +3,33 @@ import subprocess
 import sys
 
 # Combinations to test
-MODELS = [
+MODELS: tuple[str, ...] = (
     "passthrough",
     "classical_reservoir",
     "quantum_reservoir", 
     "fnn",
     "fnn_distillation",
-]
+)
 
-DATASETS = [
+DATASETS: tuple[str, ...] = (
     "lorenz",
     "mnist",
     "mackey_glass",
-]
+)
 
 @pytest.mark.parametrize("model", MODELS)
 @pytest.mark.parametrize("dataset", DATASETS)
-def test_pipeline_execution(model, dataset):
+def test_pipeline_execution(model: str, dataset: str) -> None:
     """
     Test that the pipeline accepts the model/dataset combination and runs to completion.
-    Equivalent to: uv run reservoir-cli --model <model> --dataset <dataset>
+    Equivalent to: uv run python -m reservoir.cli.main --model <model> --dataset <dataset>
     """
     print(f"\n[Test] Running Pipeline: Model={model}, Dataset={dataset}")
     
     # Construct command
     # Using 'uv run' to ensure environment consistency
     command = [
-        "uv", "run", "reservoir-cli",
+        "uv", "run", "python", "-m", "reservoir.cli.main",
         "--model", model,
         "--dataset", dataset
     ]
@@ -55,11 +55,11 @@ def test_pipeline_execution(model, dataset):
 if __name__ == "__main__":
     # Allow running directly: python tests/integration/test_matrix.py
     # Simple manual runner if pytest is not available
-    failed = []
+    failed: list[tuple[str, str]] = []
     for m in MODELS:
         for d in DATASETS:
             print(f"Running {m} on {d}...")
-            cmd = ["uv", "run", "reservoir-cli", "--model", m, "--dataset", d]
+            cmd = ["uv", "run", "python", "-m", "reservoir.cli.main", "--model", m, "--dataset", d]
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
             if res.returncode != 0:
                 print(f"FAILED: {m} on {d}")

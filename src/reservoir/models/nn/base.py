@@ -38,7 +38,8 @@ class BaseModel(ABC):
         Execute internal pre-training phase (e.g., Distillation, Backprop). Returns metrics/logs.
         Defaults to a no-op so models without a pre-training stage can conform to the interface.
         """
-        return {}
+        logs: TrainLogs = {}
+        return logs
 
     @abstractmethod
     def predict(self, X: JaxF64) -> JaxF64:
@@ -129,14 +130,14 @@ class BaseFlaxModel(BaseModel, ABC):
                 labels = batch_y
                 if labels.ndim == 1:
                     labels = jax.nn.one_hot(labels, num_classes=logits.shape[-1])
-                loss = optax.softmax_cross_entropy(logits=logits, labels=labels).mean()
+                loss_value = optax.softmax_cross_entropy(logits=logits, labels=labels).mean()
             else:
-                loss = jnp.mean((logits - batch_y) ** 2)
-            return loss
+                loss_value = jnp.mean((logits - batch_y) ** 2)
+            return loss_value
 
-        loss, grads = jax.value_and_grad(loss_fn)(state.params)
+        step_loss, grads = jax.value_and_grad(loss_fn)(state.params)
         new_state = state.apply_gradients(grads=grads)
-        return new_state, loss
+        return new_state, step_loss
 
     # ------------------------------------------------------------------ #
     # BaseModel API                                                      #
@@ -189,7 +190,8 @@ class BaseFlaxModel(BaseModel, ABC):
 
         if num_batches == 0:
             print("[nn.base.py] Warning: Not enough samples for a single batch.")
-            return {}
+            logs: TrainLogs = {}
+            return logs
 
         # Initialize model state using a processed sample
         rng = jax.random.PRNGKey(self.seed)
@@ -201,10 +203,10 @@ class BaseFlaxModel(BaseModel, ABC):
             if apply_proj_in_scan:
                 sample = projection_layer(sample)
             if apply_adapter_in_scan:
-                adapter_for_scan = adapter
-                if adapter_for_scan is None:
+                init_adapter = adapter
+                if init_adapter is None:
                     raise RuntimeError("Adapter must be configured when apply_adapter_in_scan is enabled.")
-                sample = adapter_for_scan(sample, log_label="4:Flatten")
+                sample = init_adapter(sample, log_label="4:Flatten")
             self._state = self._init_train_state(init_key, sample, num_train_steps)
 
         # Reshape into batches
@@ -227,24 +229,30 @@ class BaseFlaxModel(BaseModel, ABC):
             @jax.jit
             def train_fn(state: train_state.TrainState, data_x: JaxF64, data_y: JaxF64) -> tuple[train_state.TrainState, JaxF64]:
                 def epoch_body(st: train_state.TrainState, _: None) -> tuple[train_state.TrainState, JaxF64]:
-                    def batch_body(s: train_state.TrainState, batch: tuple[JaxF64, JaxF64]) -> tuple[train_state.TrainState, JaxF64]:
+                    def batch_body(batch_state: train_state.TrainState, batch: tuple[JaxF64, JaxF64]) -> tuple[train_state.TrainState, JaxF64]:
                         bx, by = batch
                         if apply_proj_in_scan:
                             bx = projection_layer(bx)
                         if apply_adapter_in_scan:
-                            adapter_for_scan = adapter
-                            if adapter_for_scan is None:
+                            scan_adapter = adapter
+                            if scan_adapter is None:
                                 raise RuntimeError("Adapter must be configured when apply_adapter_in_scan is enabled.")
-                            bx = adapter_for_scan(bx)
-                            by = adapter_for_scan.align_targets(by)
-                        new_s, loss = BaseFlaxModel._train_step(s, bx, by, classification)
-                        return new_s, loss
-                    s, losses = jax.lax.scan(batch_body, st, (data_x, data_y))
-                    return s, jnp.mean(losses)
-                return jax.lax.scan(epoch_body, state, None, length=length)
+                            bx = scan_adapter(bx)
+                            by = scan_adapter.align_targets(by)
+                        next_state, batch_loss = BaseFlaxModel._train_step(batch_state, bx, by, classification)
+                        return next_state, batch_loss
+                    epoch_state, batch_losses = jax.lax.scan(batch_body, st, (data_x, data_y))
+                    return epoch_state, jnp.mean(batch_losses)
+                return cast(
+                    "tuple[train_state.TrainState, JaxF64]",
+                    jax.lax.scan(epoch_body, state, None, length=length),
+                )
             return train_fn
 
         train_chunk = _make_train_fn(CHUNK_SIZE)
+        current_state = self._state
+        if current_state is None:
+            raise RuntimeError("Training state was not initialized.")
 
         loss_history: list[float] = []
         proj_info = " (proj+adapt per-batch)" if apply_proj_in_scan else ""
@@ -254,7 +262,7 @@ class BaseFlaxModel(BaseModel, ABC):
         pbar = tqdm(total=self.epochs, desc="[Train]", unit="ep")
 
         for _ in range(num_chunks):
-            self._state, chunk_losses = train_chunk(self._state, inputs_batched, targets_batched)
+            current_state, chunk_losses = train_chunk(current_state, inputs_batched, targets_batched)
             chunk_list = chunk_losses.tolist()
             loss_history.extend(chunk_list)
             pbar.update(CHUNK_SIZE)
@@ -262,7 +270,7 @@ class BaseFlaxModel(BaseModel, ABC):
 
         if remainder > 0:
             train_rem = _make_train_fn(remainder)
-            self._state, rem_losses = train_rem(self._state, inputs_batched, targets_batched)
+            current_state, rem_losses = train_rem(current_state, inputs_batched, targets_batched)
             rem_list = rem_losses.tolist()
             loss_history.extend(rem_list)
             pbar.update(remainder)
@@ -273,6 +281,7 @@ class BaseFlaxModel(BaseModel, ABC):
         print(f"[nn.base.py] Training complete in {elapsed:.1f}s. Final loss: {loss_history[-1]:.6f}")
 
         self.trained = True
+        self._state = current_state
         return {"loss_history": loss_history, "final_loss": loss_history[-1] if loss_history else 0.0}
 
 

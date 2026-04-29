@@ -4,7 +4,7 @@ Base implementation for generative models providing closed-loop generation.
 """
 from abc import ABC, abstractmethod
 from collections.abc import Callable  # noqa: TC003
-from typing import TypeVar, Protocol, runtime_checkable
+from typing import TypeVar, Protocol, runtime_checkable, cast
 
 from beartype import beartype
 import jax
@@ -15,7 +15,7 @@ from reservoir.layers.projection import Projection  # noqa: TC001
 
 @runtime_checkable
 class Predictable(Protocol):
-    def predict(self, x: JaxF64) -> JaxF64: ...
+    def predict(self, states: JaxF64) -> JaxF64: ...
 
 StateT = TypeVar("StateT", default=JaxF64)
 
@@ -28,6 +28,11 @@ class ClosedLoopGenerativeModel[StateT](ABC):
 
     topology_meta: TopologyMeta
 
+    @property
+    def input_window_size(self) -> int:
+        """Required input history/window size. Defaults to 0 for non-windowed models."""
+        return 0
+
     def train(
         self,
         inputs: JaxF64,
@@ -36,11 +41,15 @@ class ClosedLoopGenerativeModel[StateT](ABC):
         projection_layer: Projection | None = None,
     ) -> TrainLogs:
         """Train the model. Default no-op for models without trainable parameters."""
-        return {}
+        logs: TrainLogs = {}
+        return logs
 
     def get_topology_meta(self) -> TopologyMeta:
         """Return topology metadata dict."""
-        return self.topology_meta if hasattr(self, "topology_meta") else {}
+        if hasattr(self, "topology_meta"):
+            return self.topology_meta
+        empty_meta: TopologyMeta = {}
+        return empty_meta
 
     @abstractmethod
     def __call__(self, inputs: JaxF64, return_sequences: bool = False) -> JaxF64:
@@ -159,7 +168,7 @@ class ClosedLoopGenerativeModel[StateT](ABC):
         print(f"[generative.py] Step 8 jax scan step Finished generating in {time.time() - start_time:.4f} seconds.")
 
         if return_history:
-            predictions, history_states = scan_out
+            predictions, history_states = cast("tuple[JaxF64, JaxF64]", scan_out)
             # swap axes: (steps, batch, features) -> (batch, steps, features)
             predictions = jnp.swapaxes(predictions, 0, 1)
             history_states = jnp.swapaxes(history_states, 0, 1)
@@ -168,7 +177,7 @@ class ClosedLoopGenerativeModel[StateT](ABC):
                 return predictions[0], history_states[0]
             return predictions, history_states
         else:
-            predictions = scan_out
+            predictions = cast("JaxF64", scan_out)
             predictions = jnp.swapaxes(predictions, 0, 1)
             if batch_size == 1:
                 return predictions[0]

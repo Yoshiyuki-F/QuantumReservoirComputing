@@ -58,7 +58,8 @@ class DistillationModel(ClosedLoopGenerativeModel[JaxF64]):
         params: KwargsDict | None = None,
         projection_layer: Projection | None = None,
     ) -> JaxF64:
-        return self.student.predict(X)
+        _ = params
+        return self.student.predict(X, projection_layer=projection_layer)
 
     def _compute_teacher_targets(self, inputs: JaxF64, projection_layer: Projection | None = None) -> JaxF64:
         """Legacy single-batch implementation."""
@@ -110,7 +111,7 @@ class DistillationModel(ClosedLoopGenerativeModel[JaxF64]):
             teacher_targets,
             log_prefix="4B",
             projection_layer=projection_layer,
-        ) or {}
+        )
 
         distill_mse = float(student_logs.get("final_loss", 0.0))
         student_logs.setdefault("distill_mse", distill_mse)
@@ -126,6 +127,7 @@ class DistillationModel(ClosedLoopGenerativeModel[JaxF64]):
         """
         Distillation evaluation: compare student output with teacher output.
         """
+        _ = y
         import jax
         if self.training_config is None:
             raise ValueError("DistillationModel requires training_config for batching.")

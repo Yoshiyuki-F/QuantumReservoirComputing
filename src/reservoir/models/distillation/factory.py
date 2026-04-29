@@ -9,7 +9,6 @@ from reservoir.models.identifiers import Model
 from reservoir.models.nn.fnn import FNNModel
 from reservoir.models.distillation.model import DistillationModel
 from reservoir.models.reservoir.classical import ClassicalReservoir
-from reservoir.models.reservoir.quantum.model import QuantumReservoir
 from reservoir.models.config import QuantumReservoirConfig
 from typing import TYPE_CHECKING
 
@@ -52,6 +51,8 @@ class DistillationFactory:
 
         #1. create teacher (Classical or Quantum)
         if isinstance(teacher_cfg, QuantumReservoirConfig):
+            from reservoir.models.reservoir.quantum.model import QuantumReservoir
+
             n_qubits = projected_input_dim  # Projection output feeds directly as qubits
             teacher_node = QuantumReservoir(
                 n_qubits=n_qubits,

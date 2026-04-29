@@ -1,12 +1,11 @@
-"""
-printing.py
-Utilities for pretty-printing model topology and status.
-"""
-from collections.abc import Iterable
+"""Utilities for pretty-printing model topology and status."""
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from reservoir.core.types import TopologyMeta, ShapesMeta, DetailsMeta
+    from collections.abc import Iterable
+    from reservoir.core.types import DetailsMeta, ShapesMeta, TopologyMeta
 
 
 def _fmt_dim(shape: tuple[int, ...] | None) -> str:
@@ -31,9 +30,19 @@ def print_topology(meta: TopologyMeta) -> None:
     if not meta:
         return
 
-    shapes: ShapesMeta = meta.get("shapes") or {}
+    shapes: ShapesMeta
+    existing_shapes = meta.get("shapes")
+    if existing_shapes is None:
+        shapes = {}
+    else:
+        shapes = existing_shapes
 
-    details: DetailsMeta = meta.get("details") or {}
+    details: DetailsMeta
+    existing_details = meta.get("details")
+    if existing_details is None:
+        details = {}
+    else:
+        details = existing_details
 
     s_in = shapes.get("input")
     s_pre = shapes.get("preprocessed") or s_in
@@ -47,8 +56,8 @@ def print_topology(meta: TopologyMeta) -> None:
     agg_mode = details.get("agg_mode") or "None"
     readout_label = details.get("readout")
     adapter_label = details.get("adapter") or "Skipped"
-    student_layers_raw = details.get("student_layers")
-    _fmt_layers(student_layers_raw)
+    student_layers = details.get("student_layers")
+    _fmt_layers(student_layers)
 
     print(f"=== Model Topology: {meta.get('type', 'UNKNOWN')} ===")
     print(f"1. Input Data      : {_fmt_dim(s_in)}")
@@ -69,10 +78,9 @@ def print_topology(meta: TopologyMeta) -> None:
     # Step 5/6: internal/model
     has_aggregation = agg_mode not in ("None", None)
 
-    if student_layers_raw and s_adapter is not None:
+    if student_layers is not None and len(student_layers) > 0 and s_adapter is not None:
         chain = [_fmt_dim(s_adapter)]
-        iter_layers = student_layers_raw if isinstance(student_layers_raw, Iterable) else [student_layers_raw]
-        chain.extend(f"[{int(v)}]" for v in iter_layers)
+        chain.extend(f"[{v}]" for v in student_layers)
         if not has_aggregation and s_feat is not None:
             chain.append(_fmt_dim(s_feat))
         model_desc = " -> ".join(chain)

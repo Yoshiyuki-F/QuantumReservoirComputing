@@ -18,11 +18,13 @@ uv run python benchmarks/optimize_rc.py --n-trials 100
 Visualization:
 uv run optuna-dashboard  sqlite:////home/yoshi/PycharmProjects/Reservoir/benchmarks/optimize_rc.db
 """
+from __future__ import annotations
 
 import argparse
 import dataclasses
 import math
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import optuna
@@ -38,11 +40,16 @@ from reservoir.models.presets import (  # noqa: E402
     DEFAULT_RIDGE_READOUT,
 )
 from reservoir.models.config import (  # noqa: E402
+    ClassicalReservoirConfig,
+    ReadoutConfig,
     MinMaxScalerConfig,
     PolyRidgeReadoutConfig,
     RandomProjectionConfig,
 )
 from reservoir.data.identifiers import Dataset  # noqa: E402
+
+if TYPE_CHECKING:
+    from reservoir.core.types import ResultDict, TestMetrics, TrainMetrics
 
 
 # ---------------------------------------------------------------------------
@@ -70,12 +77,15 @@ def build_config(
         spectral_radius: float,
         leak_rate: float,
         rc_connectivity: float,
-        readout_config,
+        readout_config: ReadoutConfig | None,
 ):
     """
     Build a PipelineConfig with dynamically updated parameters.
     """
     base = TIME_CLASSICAL_RESERVOIR_PRESET
+    base_model = base.model
+    if not isinstance(base_model, ClassicalReservoirConfig):
+        raise TypeError("TIME_CLASSICAL_RESERVOIR_PRESET.model must be ClassicalReservoirConfig")
 
     # Update Preprocess (MinMaxScaler)
     if isinstance(base.preprocess, MinMaxScalerConfig):
@@ -102,7 +112,7 @@ def build_config(
 
     # Update Reservoir (spectral_radius, leak_rate, connectivity)
     new_model = dataclasses.replace(
-        base.model,
+        base_model,
         spectral_radius=spectral_radius,
         leak_rate=leak_rate,
         rc_connectivity=rc_connectivity,
@@ -119,7 +129,7 @@ def build_config(
 
 
 
-def make_objective(readout_config, dataset_enum: Dataset):
+def make_objective(readout_config: ReadoutConfig | None, dataset_enum: Dataset):
     """Factory that returns an Optuna objective."""
 
     def objective(trial: optuna.Trial) -> float:
@@ -170,12 +180,24 @@ def make_objective(readout_config, dataset_enum: Dataset):
 
         # === 3. Run Pipeline ===
         try:
-            results: dict[str] = run_pipeline(config, dataset_enum)
+            results: ResultDict = run_pipeline(config, dataset_enum)
 
             # === 4. Extract & Store ALL Metrics ===
-            test_results = results.get("test", {})
-            train_results = results.get("train", {})
-            chaos = test_results.get("chaos_metrics", {})
+            test_results_raw = results.get("test")
+            if test_results_raw is None:
+                test_results: TestMetrics = {}
+            else:
+                test_results = test_results_raw
+            train_results_raw = results.get("train")
+            if train_results_raw is None:
+                train_results: TrainMetrics = {}
+            else:
+                train_results = train_results_raw
+            chaos_raw = test_results.get("chaos_metrics")
+            if chaos_raw is None:
+                chaos: dict[str, float] = {}
+            else:
+                chaos = chaos_raw
 
             vpt_lt = test_results.get("vpt_lt", 0.0)
             best_lambda = train_results.get("best_lambda", None)

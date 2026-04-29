@@ -12,7 +12,7 @@ import os
 # Clean path adjustment to include src
 sys.path.append(os.path.join(os.getcwd(), "src"))
 
-from reservoir.models.reservoir.quantum import QuantumReservoir
+from reservoir.models.reservoir.quantum.model import QuantumReservoir
 from reservoir.layers.aggregation import AggregationMode
 
 def run_benchmark():
@@ -27,8 +27,8 @@ def run_benchmark():
         seed=42,
         aggregation_mode=AggregationMode.MEAN,
         feedback_scale=0.1,
+        leak_rate=1.0,
         measurement_basis="Z+ZZ",
-        encoding_strategy="Rx",
         noise_type="clean",
         noise_prob=0.0,
         readout_error=0.0,

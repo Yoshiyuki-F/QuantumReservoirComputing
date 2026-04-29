@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from reservoir.training.presets import TrainingConfig
     from reservoir.models.presets import PipelineConfig
-    from reservoir.core.types import ConfigDict
+    from reservoir.core.types import ResultDict
     from reservoir.data.identifiers import Dataset
 
 
@@ -27,7 +27,7 @@ def run_pipeline(
     config: PipelineConfig, 
     dataset: Dataset, 
     training_config: TrainingConfig | None = None
-) -> ConfigDict:
+) -> ResultDict:
     """
     Declarative orchestrator for the unified pipeline.
     
@@ -65,5 +65,4 @@ def run_pipeline(
     reporter = ResultReporter(stack, frontend_ctx, metadata)
     final_results = reporter.compile_and_save(execution_results, config)
 
-    from typing import cast
-    return cast("ConfigDict", final_results)
+    return final_results

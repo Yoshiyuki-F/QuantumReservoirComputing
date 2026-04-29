@@ -8,36 +8,58 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-from reservoir.core.types import JaxF64, TrainLogs, ConfigDict
+from reservoir.core.types import JaxF64, TrainLogs, ConfigDict, empty_train_logs
 from jaxtyping import jaxtyped
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, Required, TypedDict
 from beartype import beartype
 
 from reservoir.layers.aggregation import AggregationMode
 from reservoir.models.reservoir.base import Reservoir, ReservoirConfig
 from .backend import _ensure_tensorcircuit_initialized
-from .functional import _step_jit, _forward_jit, _get_fused_rotation_matrix
+from .functional import forward_jit, get_fused_rotation_matrix, step_jit
 
 if TYPE_CHECKING:
     from reservoir.layers.projection import Projection
 
-class _QuantumData(TypedDict, total=False):
-    """Typed structure for Quantum serialization — avoids ConfigDict union explosion."""
-    n_qubits: int
-    n_layers: int
-    seed: int
+class _QuantumShapeData(TypedDict, total=False):
+    """Shape and layer parameters for Quantum serialization."""
+    n_qubits: Required[int]
+    n_layers: Required[int]
+    seed: Required[int]
+
+
+class _QuantumDynamicsData(TypedDict, total=False):
+    """Feedback and measurement parameters for Quantum serialization."""
     feedback_scale: float
     leak_rate: float
-    aggregation: str
+    aggregation: Required[str]
     measurement_basis: str
+
+
+class _QuantumNoiseData(TypedDict, total=False):
+    """Noise parameters for Quantum serialization."""
     noise_type: str
     noise_prob: float
     readout_error: float
     n_trajectories: int
+
+
+class _QuantumRuntimeData(TypedDict, total=False):
+    """Runtime-only parameters for Quantum serialization."""
     use_remat: bool
     use_reuploading: bool
     precision: str
     chunk_size: int
+
+
+class _QuantumData(
+    _QuantumShapeData,
+    _QuantumDynamicsData,
+    _QuantumNoiseData,
+    _QuantumRuntimeData,
+    total=False,
+):
+    """Typed structure for Quantum serialization — avoids ConfigDict union explosion."""
 
 
 def _parse_measurement_basis(value: str) -> Literal["Z", "ZZ", "Z+ZZ"]:
@@ -68,10 +90,32 @@ def _parse_precision(value: str) -> Literal["complex64", "complex128"]:
     raise ValueError(f"Unknown precision: {value}")
 
 
-def _parse_quantum_data(data: ConfigDict) -> _QuantumData:
-    parsed: _QuantumData = {}
+def _required_int_config_value(data: ConfigDict, key: str) -> int:
+    value = data.get(key)
+    if value is None:
+        raise ValueError(f"Missing required quantum config key: {key}")
+    number = float(str(value))
+    if not number.is_integer():
+        raise ValueError(f"Quantum config key {key} must be an integer, got {value!r}")
+    return int(number)
 
-    for key in ("n_qubits", "n_layers", "seed", "n_trajectories", "chunk_size"):
+
+def _required_str_config_value(data: ConfigDict, key: str) -> str:
+    value = data.get(key)
+    if value is None:
+        raise ValueError(f"Missing required quantum config key: {key}")
+    return str(value)
+
+
+def _parse_quantum_data(data: ConfigDict) -> _QuantumData:
+    parsed: _QuantumData = {
+        "n_qubits": _required_int_config_value(data, "n_qubits"),
+        "n_layers": _required_int_config_value(data, "n_layers"),
+        "seed": _required_int_config_value(data, "seed"),
+        "aggregation": _required_str_config_value(data, "aggregation"),
+    }
+
+    for key in ("n_trajectories", "chunk_size"):
         value = data.get(key)
         if value is not None:
             parsed[key] = int(float(str(value)))
@@ -81,7 +125,7 @@ def _parse_quantum_data(data: ConfigDict) -> _QuantumData:
         if value is not None:
             parsed[key] = float(str(value))
 
-    for key in ("aggregation", "measurement_basis", "noise_type", "precision"):
+    for key in ("measurement_basis", "noise_type", "precision"):
         value = data.get(key)
         if value is not None:
             parsed[key] = str(value)
@@ -168,14 +212,14 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
         self.measurement_basis = measurement_basis
         self.n_correlations = n_correlations
         self.noise_type = noise_type
-        self.noise_prob = float(noise_prob)
-        self.readout_error = float(readout_error)
+        self.noise_prob = noise_prob
+        self.readout_error = readout_error
         self.n_trajectories = n_trajectories
         self.use_remat = use_remat
         self.use_reuploading = use_reuploading
         self.precision = precision
-        self.feedback_scale = float(feedback_scale)  # a_fb: R gate feedback scaling
-        self.chunk_size = int(chunk_size)
+        self.feedback_scale = feedback_scale  # a_fb: R gate feedback scaling
+        self.chunk_size = chunk_size
 
         self._rng = jax.random.key(seed)
         
@@ -195,7 +239,7 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
         
         # 2. Pre-compute fused rotation matrices (Layer, Qubit, 2, 2)
         # We vmap over both layers and qubits
-        v_get_matrix = jax.vmap(jax.vmap(_get_fused_rotation_matrix))
+        v_get_matrix = jax.vmap(jax.vmap(get_fused_rotation_matrix))
         self.reservoir_params = v_get_matrix(raw_params)
         
         self.initial_state_vector = jnp.zeros(self.n_qubits, dtype=jnp.float_)
@@ -247,7 +291,8 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
     def _broadcast_scalar(val: int, count: int) -> JaxF64:
         return jnp.full((count,), val)
 
-    def _prepare_input(self, inputs: JaxF64) -> tuple[JaxF64, bool]:
+    @staticmethod
+    def _prepare_input(inputs: JaxF64) -> tuple[JaxF64, bool]:
         """Preprocess input: ensure 3D shape (Batch, Time, Feat)."""
         arr = inputs
         input_was_2d = (arr.ndim == 2)
@@ -275,7 +320,7 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
         """Batched step function for debugging/stepping."""
         # Use vmapped step logic wrapper
         step_func = partial(
-            _step_jit, # Use the JIT compiled wrapper
+            step_jit, # Use the JIT compiled wrapper
             reservoir_params=self.reservoir_params,
             measurement_matrix=self._measurement_matrix,
             n_qubits=self.n_qubits,
@@ -329,7 +374,7 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
         # Transpose for scan (Time, Batch, Feat)
         inputs_time_major = jnp.swapaxes(run_inputs, 0, 1)
         
-        final_state, stacked_outputs = _forward_jit(
+        final_state, stacked_outputs = forward_jit(
             run_state,
             inputs_time_major,
             self.reservoir_params,
@@ -407,7 +452,8 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
         projection_layer: Projection | None = None,
     ) -> TrainLogs:
         # Reservoir has no trainable parameters; arguments are unused.
-        return {}
+        _ = (inputs, targets, log_prefix, projection_layer)
+        return empty_train_logs()
 
     def to_dict(self) -> ConfigDict:
         base_data = super().to_dict()
@@ -415,44 +461,41 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
             "n_units": base_data["n_units"],
             "leak_rate": base_data["leak_rate"],
             "aggregation": base_data["aggregation"],
-            "n_qubits": int(self.n_qubits) if self.n_qubits is not None else None,
-            "n_layers": int(self.n_layers),
-            "seed": int(self.seed),
-            "feedback_scale": float(self.feedback_scale),
-            "measurement_basis": str(self.measurement_basis),
-            "noise_type": str(self.noise_type),
-            "noise_prob": float(self.noise_prob),
-            "readout_error": float(self.readout_error),
-            "n_trajectories": int(self.n_trajectories),
-            "use_reuploading": bool(self.use_reuploading),
-            "precision": str(self.precision),
-            "use_remat": bool(self.use_remat),
-            "chunk_size": int(self.chunk_size),
+            "n_qubits": self.n_qubits if self.n_qubits is not None else None,
+            "n_layers": self.n_layers,
+            "seed": self.seed,
+            "feedback_scale": self.feedback_scale,
+            "measurement_basis": self.measurement_basis,
+            "noise_type": self.noise_type,
+            "noise_prob": self.noise_prob,
+            "readout_error": self.readout_error,
+            "n_trajectories": self.n_trajectories,
+            "use_reuploading": self.use_reuploading,
+            "precision": self.precision,
+            "use_remat": self.use_remat,
+            "chunk_size": self.chunk_size,
         }
 
     @classmethod
     def from_dict(cls, data: ConfigDict) -> QuantumReservoir:
         d = _parse_quantum_data(data)
-        try:
-            return cls(
-                n_qubits=int(d["n_qubits"]),
-                n_layers=int(d["n_layers"]),
-                seed=int(d["seed"]),
-                feedback_scale=float(d.get("feedback_scale", 0.0)),
-                leak_rate=float(d.get("leak_rate", 1.0)),
-                aggregation_mode=AggregationMode(str(d["aggregation"])),
-                measurement_basis=_parse_measurement_basis(d.get("measurement_basis", "Z")),
-                noise_type=_parse_noise_type(d.get("noise_type", "clean")),
-                noise_prob=float(d.get("noise_prob", 0.0)),
-                readout_error=float(d.get("readout_error", 0.0)),
-                n_trajectories=int(d.get("n_trajectories", 0)),
-                use_reuploading=bool(d.get("use_reuploading", False)),
-                precision=_parse_precision(d.get("precision", "complex64")),
-                use_remat=bool(d.get("use_remat", False)),
-                chunk_size=int(d.get("chunk_size", 32)),
-            )
-        except KeyError as exc:
-            raise KeyError(f"Missing required quantum reservoir parameter '{exc.args[0]}'") from exc
+        return cls(
+            n_qubits=d["n_qubits"],
+            n_layers=d["n_layers"],
+            seed=d["seed"],
+            feedback_scale=d.get("feedback_scale", 0.0),
+            leak_rate=d.get("leak_rate", 1.0),
+            aggregation_mode=AggregationMode(d["aggregation"]),
+            measurement_basis=_parse_measurement_basis(d.get("measurement_basis", "Z")),
+            noise_type=_parse_noise_type(d.get("noise_type", "clean")),
+            noise_prob=d.get("noise_prob", 0.0),
+            readout_error=d.get("readout_error", 0.0),
+            n_trajectories=d.get("n_trajectories", 0),
+            use_reuploading=d.get("use_reuploading", False),
+            precision=_parse_precision(d.get("precision", "complex64")),
+            use_remat=d.get("use_remat", False),
+            chunk_size=d.get("chunk_size", 32),
+        )
 
     def get_observable_names(self) -> list[str]:
         """Generate human-readable names for the measured observables."""

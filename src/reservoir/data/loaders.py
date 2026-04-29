@@ -57,15 +57,19 @@ def register_loader(dataset: Dataset) -> Callable[[F], F]:
     return decorator
 
 
+def _dtype_name(array: NpF64) -> str:
+    return array.dtype.name
+
+
 @register_loader(Dataset.SINE_WAVE)
 @beartype
 def load_sine_wave(config: SineWaveConfig) -> tuple[NpF64, NpF64]:
     """Load or generate sine wave data and return as (N, T, F) sequences."""
     X_arr, y_arr = generate_sine_data(config)
     if X_arr.dtype != np.float64:
-        raise ValueError(f"Sine wave X_arr must be float64, got {X_arr.dtype}")
+        raise ValueError(f"Sine wave X_arr must be float64, got {_dtype_name(X_arr)}")
     if y_arr.dtype != np.float64:
-        raise ValueError(f"Sine wave y_arr must be float64, got {y_arr.dtype}")
+        raise ValueError(f"Sine wave y_arr must be float64, got {_dtype_name(y_arr)}")
 
     # Ensure 3D shape (N, T, F). Treat each timestep as a length-1 sequence.
     if X_arr.ndim == 2:
@@ -83,9 +87,9 @@ def load_mnist(config: MNISTConfig) -> SplitDataset:
     test_arr , test_labels = generate_mnist_sequence_data(config, split="test")
 
     if train_arr.dtype != np.float64:
-        raise ValueError(f"MNIST train_arr must be float64, got {train_arr.dtype}")
+        raise ValueError(f"MNIST train_arr must be float64, got {_dtype_name(train_arr)}")
     if test_arr.dtype != np.float64:
-        raise ValueError(f"MNIST test_arr must be float64, got {test_arr.dtype}")
+        raise ValueError(f"MNIST test_arr must be float64, got {_dtype_name(test_arr)}")
 
     # Ensure (N, T, F)
     if train_arr.ndim == 2:
@@ -135,9 +139,9 @@ def load_mackey_glass(config: MackeyGlassConfig) -> tuple[NpF64, NpF64]:
     # 1. Generate (returns jnp arrays)
     X_gen, y_gen = generate_mackey_glass_data(config)
     if X_gen.dtype != np.float64:
-        raise ValueError(f"Mackey-Glass X_gen must be float64, got {X_gen.dtype}")
+        raise ValueError(f"Mackey-Glass X_gen must be float64, got {_dtype_name(X_gen)}")
     if y_gen.dtype != np.float64:
-        raise ValueError(f"Mackey-Glass y_gen must be float64, got {y_gen.dtype}")
+        raise ValueError(f"Mackey-Glass y_gen must be float64, got {_dtype_name(y_gen)}")
 
     # 2. Reconstruct full sequence (N+1)
     # X_gen: (T, 1), y_gen: (T, 1)
@@ -154,7 +158,7 @@ def load_mackey_glass(config: MackeyGlassConfig) -> tuple[NpF64, NpF64]:
 
     # 5. Naive MSE Baseline
     # "Naive MSE = mean((y[1:] - y[:-1])**2)"
-    naive_loss = np.mean((seq[1:] - seq[:-1]) ** 2)
+    naive_loss = float(np.mean((seq[1:] - seq[:-1]) ** 2))
     print(f"[loader.py] Naive Prediction MSE (Baseline): {naive_loss:.6f}")
     
     # 6. Re-create X, y
@@ -173,9 +177,9 @@ def load_lorenz(config: LorenzConfig) -> tuple[NpF64, NpF64]:
     """Generate Lorenz attractor sequences."""
     X, y = generate_lorenz_data(config)
     if X.dtype != np.float64:
-        raise ValueError(f"Lorenz X must be float64, got {X.dtype}")
+        raise ValueError(f"Lorenz X must be float64, got {_dtype_name(X)}")
     if y.dtype != np.float64:
-        raise ValueError(f"Lorenz y must be float64, got {y.dtype}")
+        raise ValueError(f"Lorenz y must be float64, got {_dtype_name(y)}")
     # Return (T, F) so that splitting happens along the time axis (axis 0).
     # We will reshape this to (1, T, F) in load_dataset_with_validation_split.
     return X, y
@@ -187,9 +191,9 @@ def load_lorenz96(config: Lorenz96Config) -> tuple[NpF64, NpF64]:
     """Generate Lorenz 96 sequences."""
     X, y = generate_lorenz96_data(config)
     if X.dtype != np.float64:
-        raise ValueError(f"Lorenz96 X must be float64, got {X.dtype}")
+        raise ValueError(f"Lorenz96 X must be float64, got {_dtype_name(X)}")
     if y.dtype != np.float64:
-        raise ValueError(f"Lorenz96 y must be float64, got {y.dtype}")
+        raise ValueError(f"Lorenz96 y must be float64, got {_dtype_name(y)}")
     # Return (T, F) so that splitting happens along the time axis (axis 0).
     # We will reshape this to (1, T, F) in load_dataset_with_validation_split.
     # if X.ndim == 2:
@@ -224,14 +228,14 @@ def load_dataset_with_validation_split(
 
     def _split_validation(features: NpF64, labels: NpF64) -> tuple[NpF64, NpF64, NpF64, NpF64]:
         # Always create validation split (minimum 1 sample)
-        val_count = max(1, int(len(features) * val_size)) if val_size > 0 else 1
-        train_count = len(features) - val_count
-        if train_count < 1:
-            train_count = len(features) - 1
+        split_val_count = max(1, int(len(features) * val_size)) if val_size > 0 else 1
+        split_train_count = len(features) - split_val_count
+        if split_train_count < 1:
+            split_train_count = len(features) - 1
 
-        val_features = features[train_count:]
-        val_labels = labels[train_count:]
-        return features[:train_count], labels[:train_count], val_features, val_labels
+        val_features = features[split_train_count:]
+        val_labels = labels[split_train_count:]
+        return features[:split_train_count], labels[:split_train_count], val_features, val_labels
 
     train_X: NpF64
     train_y: NpF64
@@ -275,24 +279,24 @@ def load_dataset_with_validation_split(
             # LT-based splitting for chaotic datasets
             # steps_per_lt = lyapunov_time_unit / dt
             steps_per_lt = int(chaos_config.lyapunov_time_unit / chaos_config.dt)
-            train_count = int(chaos_config.train_lt * steps_per_lt)
-            val_count = int(chaos_config.val_lt * steps_per_lt)
-            test_count = int(chaos_config.test_lt * steps_per_lt)
+            lt_train_count = int(chaos_config.train_lt * steps_per_lt)
+            lt_val_count = int(chaos_config.val_lt * steps_per_lt)
+            lt_test_count = int(chaos_config.test_lt * steps_per_lt)
             
-            required_total = train_count + val_count + test_count
+            required_total = lt_train_count + lt_val_count + lt_test_count
             if total < required_total:
                 raise ValueError(
                     f"Dataset '{dataset_enum}' has {total} samples but LT-based split requires "
-                    f"{required_total} (train={train_count}, val={val_count}, test={test_count})."
+                    f"{required_total} (train={lt_train_count}, val={lt_val_count}, test={lt_test_count})."
                 )
             
             # Use the first (train+val+test) samples, ignore any extra
-            train_X, train_y = X[:train_count], y[:train_count]
-            val_X, val_y = X[train_count:train_count + val_count], y[train_count:train_count + val_count]
-            test_X, test_y = X[train_count + val_count:train_count + val_count + test_count], y[train_count + val_count:train_count + val_count + test_count]
+            train_X, train_y = X[:lt_train_count], y[:lt_train_count]
+            val_X, val_y = X[lt_train_count:lt_train_count + lt_val_count], y[lt_train_count:lt_train_count + lt_val_count]
+            test_X, test_y = X[lt_train_count + lt_val_count:lt_train_count + lt_val_count + lt_test_count], y[lt_train_count + lt_val_count:lt_train_count + lt_val_count + lt_test_count]
             
-            print(f"[loader.py] LT-based split: train={train_count} ({chaos_config.train_lt} LT), "
-                  f"val={val_count} ({chaos_config.val_lt} LT), test={test_count} ({chaos_config.test_lt} LT)")
+            print(f"[loader.py] LT-based split: train={lt_train_count} ({chaos_config.train_lt} LT), "
+                  f"val={lt_val_count} ({chaos_config.val_lt} LT), test={lt_test_count} ({chaos_config.test_lt} LT)")
         else:
             # Percentage-based splitting (original logic)
             train_ratio = float(training_cfg.train_size)
@@ -305,20 +309,20 @@ def load_dataset_with_validation_split(
 
             # Correct 8:1:1 split: calculate all counts from total
             import math
-            train_count = max(1, math.ceil(total * train_ratio))
-            val_count = max(1, round(total * val_size)) if val_size > 0 else 0
-            test_count = total - train_count - val_count
+            pct_train_count = max(1, math.ceil(total * train_ratio))
+            pct_val_count = max(1, round(total * val_size)) if val_size > 0 else 0
+            pct_test_count = total - pct_train_count - pct_val_count
 
-            if train_count < 1 or test_count < 1:
-                raise ValueError(f"Invalid split sizes: train={train_count}, val={val_count}, test={test_count} for total={total}.")
+            if pct_train_count < 1 or pct_test_count < 1:
+                raise ValueError(f"Invalid split sizes: train={pct_train_count}, val={pct_val_count}, test={pct_test_count} for total={total}.")
 
-            train_X, train_y = X[:train_count], y[:train_count]
+            train_X, train_y = X[:pct_train_count], y[:pct_train_count]
             # Always create validation split (minimum 1 sample)
-            if val_count < 1:
-                val_count = 1
-                train_count = train_count - 1 if train_count > 1 else train_count
-            val_X, val_y = X[train_count:train_count + val_count], y[train_count:train_count + val_count]
-            test_X, test_y = X[train_count + val_count:], y[train_count + val_count:]
+            if pct_val_count < 1:
+                pct_val_count = 1
+                pct_train_count = pct_train_count - 1 if pct_train_count > 1 else pct_train_count
+            val_X, val_y = X[pct_train_count:pct_train_count + pct_val_count], y[pct_train_count:pct_train_count + pct_val_count]
+            test_X, test_y = X[pct_train_count + pct_val_count:], y[pct_train_count + pct_val_count:]
 
     #TODO why is Val_X has warning??
     return SplitDataset(train_X, train_y, test_X, test_y, val_X, val_y)
