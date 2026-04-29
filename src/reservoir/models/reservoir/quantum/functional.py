@@ -32,7 +32,7 @@ def _get_qubit_offsets(n_qubits: int) -> JaxF64:
 
 # --- used in model.py
 
-def _get_fused_rotation_matrix(params: JaxF64) -> JaxF64:
+def get_fused_rotation_matrix(params: JaxF64) -> JaxF64:
     """Fuse RX, RY, RZ rotations into a single 2x2 unitary matrix."""
     tx, ty, tz = params[0], params[1], params[2]
 
@@ -64,7 +64,7 @@ def _get_fused_rotation_matrix(params: JaxF64) -> JaxF64:
 
 # --- Performance Optimization Helpers ---
 
-def _get_paper_R_unitary(theta: JaxF64) -> JaxF64:
+def get_paper_R_unitary(theta: JaxF64) -> JaxF64:
     """Compute fused 4x4 unitary for the Paper R gate (vmap safe).
     Analytically pre-computed to avoid kron and matmul overhead.
     """
@@ -92,12 +92,12 @@ def _get_input_unitaries(u_vec: JaxF64, n_qubits: int) -> JaxF64:
     indices = jnp.arange(n_qubits) % u_vec.shape[0]
     base_angles = u_vec[indices]
     offsets = _get_qubit_offsets(n_qubits)
-    return jax.vmap(_get_paper_R_unitary)(base_angles + offsets)
+    return jax.vmap(get_paper_R_unitary)(base_angles + offsets)
 
 
 def _get_fused_input_and_feedback(input_unitaries: JaxF64, feedback_val: JaxF64, feedback_scale: float) -> JaxF64:
     """Computes feedback unitaries and fuses them with the input unitaries."""
-    fb_unitaries = jax.vmap(_get_paper_R_unitary)(feedback_val * feedback_scale)
+    fb_unitaries = jax.vmap(get_paper_R_unitary)(feedback_val * feedback_scale)
 
     # SWAP trick: align feedback qubit ordering (i+1, i) → (i, i+1) before fusing.
     # This is essentially free in JAX (index remap, no FLOPs).
@@ -110,7 +110,7 @@ def _get_fused_input_and_feedback(input_unitaries: JaxF64, feedback_val: JaxF64,
 # --- Core Step Logic ---
 
 
-def _make_circuit_logic(
+def make_circuit_logic(
     input_unitaries: JaxF64,  # (N, 4, 4)
     feedback_val: JaxF64,
     params: JaxF64,  # (L, N, 2, 2)
@@ -253,7 +253,7 @@ def _step_logic(
     next_key = None
     if rng_key is not None:
         step_key, next_key = jax.random.split(rng_key)
-    probs = _make_circuit_logic(
+    probs = make_circuit_logic(
         step_input_unitaries,
         m_prev,
         reservoir_params,
@@ -278,7 +278,7 @@ def _step_logic(
 @partial(
     jax.jit, static_argnames=["n_qubits", "noise_type", "use_remat", "use_reuploading"]
 )
-def _step_jit(
+def step_jit(
     state: tuple[JaxF64, JaxKey | None],
     input_slice: JaxF64,
     reservoir_params: JaxF64,
@@ -343,7 +343,7 @@ def _chunk_scan_jit(
     )
 
 
-def _forward_jit(
+def forward_jit(
     state_init: tuple[JaxF64, JaxKey | None],
     inputs_time_major: JaxF64,
     reservoir_params: JaxF64,
@@ -378,13 +378,6 @@ def _forward_jit(
     )
 
     return final_carry, stacked_outputs.reshape(T, B, -1)
-
-
-get_fused_rotation_matrix = _get_fused_rotation_matrix
-get_paper_R_unitary = _get_paper_R_unitary
-make_circuit_logic = _make_circuit_logic
-step_jit = _step_jit
-forward_jit = _forward_jit
 
 
 __all__ = [

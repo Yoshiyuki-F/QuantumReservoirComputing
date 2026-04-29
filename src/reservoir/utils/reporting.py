@@ -248,8 +248,10 @@ def plot_classification_report(
     # Extract lambda_norm from weight_norms for the selected lambda
     lambda_norm = None
     if selected_lambda is not None and results is not None:
-        train_res = results.get("train", {})
-        weight_norms = train_res.get("weight_norms", {})
+        empty_train_metrics: TrainMetrics = {}
+        train_res = results.get("train", empty_train_metrics)
+        empty_weight_norms: dict[float, float] = {}
+        weight_norms = train_res.get("weight_norms", empty_weight_norms)
         lambda_norm = float(weight_norms.get(selected_lambda, 0.0))
 
     empty_test_metrics: TestMetrics = {}

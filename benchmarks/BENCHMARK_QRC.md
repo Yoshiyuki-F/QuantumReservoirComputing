@@ -44,7 +44,7 @@ Attempted to push beyond the high-level `tc.Circuit` API to reach the physical s
 - **Conclusion:** **Rejected**. Zero-feedback bypass is a dead code path, and modifying the CNOT ladder would alter the intended entanglement topology unnecessarily.
 
 ### Phase 7: Deep Unrolling & Unitary Fusion (Feedback-Heavy Scenarios)
-- **Optimization 1: Analytical Paper R Gate:** The `_get_paper_R_unitary` function originally relied on dynamic `jnp.kron` and `jnp.matmul` operations to construct the $4 \times 4$ Paper R matrix. This was replaced with a hardcoded, analytically derived $4 \times 4$ matrix composed directly from $\cos(\theta/2)$ and $\sin(\theta/2)$.
+- **Optimization 1: Analytical Paper R Gate:** The `get_paper_R_unitary` function originally relied on dynamic `jnp.kron` and `jnp.matmul` operations to construct the $4 \times 4$ Paper R matrix. This was replaced with a hardcoded, analytically derived $4 \times 4$ matrix composed directly from $\cos(\theta/2)$ and $\sin(\theta/2)$.
   - **Effect:** Completely eliminated expensive runtime matrix multiplications and tensor Kronecker products.
 - **Optimization 2: Input and Feedback Fusion:** In the encoding step, the input unitary $U_{in}$ on $(i, (i+1)\%N)$ and feedback unitary $U_{fb}$ on $((i+1)\%N, i)$ were previously applied to the state vector sequentially as two separate operations.
   - **Method:** Used matrix index swapping to align the target qubits and pre-multiplied them into a single fused unitary ($U_{fused} = U_{fb\_swapped} \cdot U_{in}$).
@@ -52,14 +52,14 @@ Attempted to push beyond the high-level `tc.Circuit` API to reach the physical s
 - **Result:** Improved the batched JIT compilation execution time from ~29.38 ms/step down to ~28.90 ms/step, while also resolving implicit type-casting warnings.
 
 ### Phase 8: Strict JAX Purity & PRNG Vectorization (Monte Carlo)
-- **Optimization 1: Purity Enforcement:** Removed `_ensure_tensorcircuit_initialized()` and `tc.backend.convert_to_tensor(m)` from within `vmap`/`jit` pure functions (`_get_paper_R_unitary`, `_get_fused_rotation_matrix`).
+- **Optimization 1: Purity Enforcement:** Removed `_ensure_tensorcircuit_initialized()` and `tc.backend.convert_to_tensor(m)` from within `vmap`/`jit` pure functions (`get_paper_R_unitary`, `get_fused_rotation_matrix`).
   - **Effect:** Eliminated JAX tracing overhead and potential side-effect leakage by returning pure `jnp.ndarray` directly.
 - **Optimization 2: Vectorized PRNG Splits:** The Monte Carlo noise application (`is_mc=True`) previously suffered from sequential `jax.random.split` calls inside a python `for` loop.
   - **Method:** Moved the split outside the loop to generate an array of required random numbers at once: `r_array = jax.random.uniform(k1, shape=(len(indices),))`.
   - **Effect:** Massively reduced compilation and execution overhead during noisy Monte Carlo simulations by avoiding sequential state-key tracing.
 
 ### Phase 9: Mathematical Redundancy Elimination
-- **Optimization 1: Transcendental Reduction:** The calculation of $e^{\pm i\theta/2}$ for the Paper R gate (`_get_paper_R_unitary`) and the RZ gate (`_get_fused_rotation_matrix`) required high-cost `jnp.exp` operations despite already having computed $\cos(\theta/2)$ and $\sin(\theta/2)$.
+- **Optimization 1: Transcendental Reduction:** The calculation of $e^{\pm i\theta/2}$ for the Paper R gate (`get_paper_R_unitary`) and the RZ gate (`get_fused_rotation_matrix`) required high-cost `jnp.exp` operations despite already having computed $\cos(\theta/2)$ and $\sin(\theta/2)$.
   - **Method:** Applied Euler's formula to rewrite these terms purely as $c \pm s$ where $c = \cos(\theta/2), s = -i\sin(\theta/2)$, completely eliminating all $e^x$ function evaluations per unitary per step.
 - **Optimization 2: SWAP Invariance (No-op Removal):** The feedback matrix $U_{fb}$ required a $2 \times 2$ quantum swap to align the target qubits `(i+1, i)` to match the input `(i, i+1)`. This involved Python-level index tensor slicing (`swap_idx`).
   - **Finding:** A mathematical proof established that the $4 \times 4$ Paper R matrix is perfectly symmetric under SWAP (`SWAP @ M @ SWAP == M`).

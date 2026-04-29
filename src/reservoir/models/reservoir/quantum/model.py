@@ -155,7 +155,7 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
     Quantum Reservoir Computing using TensorCircuit.
     
     - Core Logic (`_step_logic`) is separated from JIT wrappers.
-    - `_forward_jit` fuses the scan loop via XLA (no nested JIT).
+    - `forward_jit` fuses the scan loop via XLA (no nested JIT).
     - Zero-overhead recompilation (Parameters passed as arguments).
     """
 
@@ -175,7 +175,6 @@ class QuantumReservoir(Reservoir[tuple[JaxF64, JaxF64 | None]]):
         use_reuploading: bool,
 
         ## Internal/Advanced Options in JAX (not typically user-facing)
-        # TODO should be in some config class or something, not here
         precision: Literal["complex64", "complex128"] = "complex128",
         use_remat: bool = False, # does it matter for forward since we have no trainable params? maybe for step if used standalone?
         chunk_size: int = 32,
