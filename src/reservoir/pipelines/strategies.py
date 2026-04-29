@@ -47,6 +47,23 @@ class DivergenceError(ValueError):
 
 _RIDGE_FEATURE_BATCH_BUDGET_BYTES = 128 * 1024 * 1024
 _RIDGE_SOLVE_BATCH_BUDGET_BYTES = 512 * 1024 * 1024
+_EVAL_METRIC_NAMES = (
+    "mse",
+    "mae",
+    "accuracy",
+    "precision",
+    "recall",
+    "f1",
+    "nmse",
+    "nrmse",
+    "mase",
+    "ndei",
+    "var_ratio",
+    "correlation",
+    "vpt_steps",
+    "vpt_lt",
+    "vpt_threshold",
+)
 
 
 def _metric_entry(metric_name: str, score: float) -> EvalMetrics:
@@ -59,84 +76,94 @@ def _metric_entry(metric_name: str, score: float) -> EvalMetrics:
 def _set_metric_value(payload: EvalMetrics, metric_name: str, score: float) -> None:
     """Set one supported scalar metric on a typed metric payload."""
     name = metric_name.lower()
-    if name == "accuracy":
-        payload["accuracy"] = score
-        return
-    if name == "nmse":
-        payload["nmse"] = score
-        return
-    if name == "mse":
-        payload["mse"] = score
-        return
-    if name == "mae":
-        payload["mae"] = score
-        return
-    if name == "nrmse":
-        payload["nrmse"] = score
-        return
-    if name == "mase":
-        payload["mase"] = score
-        return
-    if name == "ndei":
-        payload["ndei"] = score
-        return
-    if name == "var_ratio":
-        payload["var_ratio"] = score
-        return
-    if name == "correlation":
-        payload["correlation"] = score
-        return
-    payload["mse"] = score
+    match name:
+        case "accuracy":
+            payload["accuracy"] = score
+        case "precision":
+            payload["precision"] = score
+        case "recall":
+            payload["recall"] = score
+        case "f1":
+            payload["f1"] = score
+        case "nmse":
+            payload["nmse"] = score
+        case "mse":
+            payload["mse"] = score
+        case "mae":
+            payload["mae"] = score
+        case "nrmse":
+            payload["nrmse"] = score
+        case "mase":
+            payload["mase"] = score
+        case "ndei":
+            payload["ndei"] = score
+        case "var_ratio":
+            payload["var_ratio"] = score
+        case "correlation":
+            payload["correlation"] = score
+        case "vpt_steps":
+            payload["vpt_steps"] = score
+        case "vpt_lt":
+            payload["vpt_lt"] = score
+        case "vpt_threshold":
+            payload["vpt_threshold"] = score
+        case _:
+            payload["mse"] = score
+
+
+def _metric_value(metrics: EvalMetrics, metric_name: str) -> float | None:
+    """Return one metric value while keeping TypedDict access on literal keys."""
+    match metric_name.lower():
+        case "mse":
+            return metrics.get("mse")
+        case "mae":
+            return metrics.get("mae")
+        case "accuracy":
+            return metrics.get("accuracy")
+        case "precision":
+            return metrics.get("precision")
+        case "recall":
+            return metrics.get("recall")
+        case "f1":
+            return metrics.get("f1")
+        case "nmse":
+            return metrics.get("nmse")
+        case "nrmse":
+            return metrics.get("nrmse")
+        case "mase":
+            return metrics.get("mase")
+        case "ndei":
+            return metrics.get("ndei")
+        case "var_ratio":
+            return metrics.get("var_ratio")
+        case "correlation":
+            return metrics.get("correlation")
+        case "vpt_steps":
+            return metrics.get("vpt_steps")
+        case "vpt_lt":
+            return metrics.get("vpt_lt")
+        case "vpt_threshold":
+            return metrics.get("vpt_threshold")
+    return None
+
+
+def _copy_eval_metrics(metrics: EvalMetrics) -> EvalMetrics:
+    """Copy supported scalar metrics into a new typed payload."""
+    payload: EvalMetrics = {}
+    for metric_name in _EVAL_METRIC_NAMES:
+        value = _metric_value(metrics, metric_name)
+        if value is not None:
+            _set_metric_value(payload, metric_name, float(value))
+    return payload
 
 
 def _eval_metrics_to_float_dict(metrics: EvalMetrics) -> dict[str, float]:
     """Convert typed metric fields to a plain float dictionary for result payloads."""
     payload: dict[str, float] = {}
-    mse = metrics.get("mse")
-    mae = metrics.get("mae")
-    accuracy = metrics.get("accuracy")
-    precision = metrics.get("precision")
-    recall = metrics.get("recall")
-    f1 = metrics.get("f1")
-    nmse = metrics.get("nmse")
-    nrmse = metrics.get("nrmse")
-    mase = metrics.get("mase")
-    ndei = metrics.get("ndei")
-    var_ratio = metrics.get("var_ratio")
-    correlation = metrics.get("correlation")
-    vpt_steps = metrics.get("vpt_steps")
-    vpt_lt = metrics.get("vpt_lt")
-    vpt_threshold = metrics.get("vpt_threshold")
-    if mse is not None:
-        payload["mse"] = float(mse)
-    if mae is not None:
-        payload["mae"] = float(mae)
-    if accuracy is not None:
-        payload["accuracy"] = float(accuracy)
-    if precision is not None:
-        payload["precision"] = float(precision)
-    if recall is not None:
-        payload["recall"] = float(recall)
-    if f1 is not None:
-        payload["f1"] = float(f1)
-    if nmse is not None:
-        payload["nmse"] = float(nmse)
-    if nrmse is not None:
-        payload["nrmse"] = float(nrmse)
-    if mase is not None:
-        payload["mase"] = float(mase)
-    if ndei is not None:
-        payload["ndei"] = float(ndei)
-    if var_ratio is not None:
-        payload["var_ratio"] = float(var_ratio)
-    if correlation is not None:
-        payload["correlation"] = float(correlation)
-    if vpt_steps is not None:
-        payload["vpt_steps"] = float(vpt_steps)
-    if vpt_lt is not None:
-        payload["vpt_lt"] = float(vpt_lt)
-    if vpt_threshold is not None:
-        payload["vpt_threshold"] = float(vpt_threshold)
+    for metric_name in _EVAL_METRIC_NAMES:
+        value = _metric_value(metrics, metric_name)
+        if value is not None:
+            payload[metric_name] = float(value)
     return payload
 
 
@@ -804,42 +831,11 @@ class ClosedLoopRegressionStrategy(ReadoutStrategy):
             print_chaos_metrics(val_metrics_chaos)
 
             # Store validation chaos metrics
-            val_metrics: EvalMetrics = {}
+            val_metrics = _copy_eval_metrics(val_metrics_chaos)
+            if val_metrics.get("vpt_lt") is None:
+                val_metrics["vpt_lt"] = 0.0
             metrics["val"] = val_metrics
-            mse = val_metrics_chaos.get("mse")
-            mae = val_metrics_chaos.get("mae")
             nmse = val_metrics_chaos.get("nmse")
-            nrmse = val_metrics_chaos.get("nrmse")
-            mase = val_metrics_chaos.get("mase")
-            ndei = val_metrics_chaos.get("ndei")
-            var_ratio = val_metrics_chaos.get("var_ratio")
-            correlation = val_metrics_chaos.get("correlation")
-            vpt_steps = val_metrics_chaos.get("vpt_steps")
-            vpt_lt_metric = val_metrics_chaos.get("vpt_lt")
-            vpt_threshold = val_metrics_chaos.get("vpt_threshold")
-            if mse is not None:
-                val_metrics["mse"] = float(mse)
-            if mae is not None:
-                val_metrics["mae"] = float(mae)
-            if nmse is not None:
-                val_metrics["nmse"] = float(nmse)
-            if nrmse is not None:
-                val_metrics["nrmse"] = float(nrmse)
-            if mase is not None:
-                val_metrics["mase"] = float(mase)
-            if ndei is not None:
-                val_metrics["ndei"] = float(ndei)
-            if var_ratio is not None:
-                val_metrics["var_ratio"] = float(var_ratio)
-            if correlation is not None:
-                val_metrics["correlation"] = float(correlation)
-            if vpt_steps is not None:
-                val_metrics["vpt_steps"] = float(vpt_steps)
-            if vpt_lt_metric is not None:
-                val_metrics["vpt_lt"] = float(vpt_lt_metric)
-            if vpt_threshold is not None:
-                val_metrics["vpt_threshold"] = float(vpt_threshold)
-            val_metrics["vpt_lt"] = float(val_metrics_chaos.get("vpt_lt", 0.0))
 
             nmse_for_guard = float(nmse) if nmse is not None else 0.0
             if nmse_for_guard > 1e-5:
